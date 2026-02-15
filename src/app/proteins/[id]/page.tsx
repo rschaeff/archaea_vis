@@ -286,10 +286,10 @@ export default function ProteinDetailPage() {
                       </span>
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-900 text-right">
-                      {domain.dpam_prob?.toFixed(3) || '-'}
+                      {domain.dpam_prob != null ? Number(domain.dpam_prob).toFixed(3) : '-'}
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-900 text-right">
-                      {domain.hh_prob?.toFixed(3) || '-'}
+                      {domain.hh_prob != null ? Number(domain.hh_prob).toFixed(3) : '-'}
                     </td>
                     <td className="px-3 py-2 text-sm">
                       {domain.pfam_hits.length === 0 ? (
