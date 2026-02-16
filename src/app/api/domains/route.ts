@@ -15,18 +15,20 @@ export async function GET() {
       judgeDist,
       pfamCoverage,
       totalDomains,
-      topTgroups,
     ] = await Promise.all([
-      // T-group distribution (top 30)
-      query<{ t_group: string; count: string; judge_good: string; judge_ambig: string }>(`
+      // T-group distribution (top 30) with names and Pfam counts
+      query<{ t_group: string; t_group_name: string | null; count: string; with_pfam: string; without_pfam: string }>(`
         SELECT
-          t_group,
+          d.t_group,
+          c.name AS t_group_name,
           COUNT(*) AS count,
-          COUNT(*) FILTER (WHERE judge = 'good_domain') AS judge_good,
-          COUNT(*) FILTER (WHERE judge IN ('low_confidence', 'partial_domain')) AS judge_ambig
-        FROM archaea.domains
-        WHERE t_group IS NOT NULL
-        GROUP BY t_group
+          COUNT(DISTINCT d.id) FILTER (WHERE dph.id IS NOT NULL) AS with_pfam,
+          COUNT(DISTINCT d.id) FILTER (WHERE dph.id IS NULL) AS without_pfam
+        FROM archaea.domains d
+        LEFT JOIN ecod_rep.cluster c ON d.t_group = c.id AND c.type = 'T'
+        LEFT JOIN archaea.domain_pfam_hits dph ON d.id = dph.domain_id
+        WHERE d.t_group IS NOT NULL
+        GROUP BY d.t_group, c.name
         ORDER BY count DESC
         LIMIT 30
       `),
@@ -48,35 +50,30 @@ export async function GET() {
         LEFT JOIN archaea.domain_pfam_hits dph ON d.id = dph.domain_id
       `),
 
-      // Total domains
-      query<{ total: string; proteins: string }>(`
-        SELECT COUNT(*) AS total, COUNT(DISTINCT protein_id) AS proteins
-        FROM archaea.domains
-      `),
-
-      // Top T-groups with names (from the domains themselves)
-      query<{ t_group: string; count: string; sources: string }>(`
+      // Total domains + unique T-groups + multi-domain proteins
+      query<{ total: string; proteins: string; unique_tgroups: string; multi_domain_proteins: string }>(`
         SELECT
-          d.t_group,
-          COUNT(*) AS count,
-          string_agg(DISTINCT tp.source, ', ') AS sources
-        FROM archaea.domains d
-        JOIN archaea.target_proteins tp ON d.protein_id = tp.protein_id
-        WHERE d.t_group IS NOT NULL
-        GROUP BY d.t_group
-        ORDER BY count DESC
-        LIMIT 50
+          COUNT(*) AS total,
+          COUNT(DISTINCT protein_id) AS proteins,
+          COUNT(DISTINCT t_group) AS unique_tgroups,
+          (SELECT COUNT(*) FROM (
+            SELECT protein_id FROM archaea.domains GROUP BY protein_id HAVING COUNT(*) > 1
+          ) sub) AS multi_domain_proteins
+        FROM archaea.domains
       `),
     ]);
 
     return NextResponse.json({
       total_domains: parseInt(totalDomains.rows[0]?.total || '0'),
       proteins_with_domains: parseInt(totalDomains.rows[0]?.proteins || '0'),
+      unique_tgroups: parseInt(totalDomains.rows[0]?.unique_tgroups || '0'),
+      multi_domain_proteins: parseInt(totalDomains.rows[0]?.multi_domain_proteins || '0'),
       tgroup_distribution: tgroupDist.rows.map(r => ({
         t_group: r.t_group,
+        t_group_name: r.t_group_name,
         count: parseInt(r.count),
-        judge_good: parseInt(r.judge_good),
-        judge_ambiguous: parseInt(r.judge_ambig),
+        with_pfam: parseInt(r.with_pfam),
+        without_pfam: parseInt(r.without_pfam),
       })),
       judge_breakdown: judgeDist.rows.map(r => ({
         judge: r.judge,
@@ -86,11 +83,6 @@ export async function GET() {
         with_pfam: parseInt(pfamCoverage.rows[0]?.with_pfam || '0'),
         without_pfam: parseInt(pfamCoverage.rows[0]?.without_pfam || '0'),
       },
-      top_tgroups: topTgroups.rows.map(r => ({
-        t_group: r.t_group,
-        count: parseInt(r.count),
-        sources: r.sources,
-      })),
     });
   } catch (error) {
     console.error('Domains API error:', error);

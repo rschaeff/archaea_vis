@@ -9,9 +9,10 @@ import { judgeColor } from '@/lib/utils';
 
 interface TgroupEntry {
   t_group: string;
+  t_group_name: string | null;
   count: number;
-  judge_good: number;
-  judge_ambiguous: number;
+  with_pfam: number;
+  without_pfam: number;
 }
 
 interface JudgeEntry {
@@ -19,19 +20,14 @@ interface JudgeEntry {
   count: number;
 }
 
-interface TopTgroup {
-  t_group: string;
-  count: number;
-  sources: string;
-}
-
 interface DomainData {
   total_domains: number;
   proteins_with_domains: number;
+  unique_tgroups: number;
+  multi_domain_proteins: number;
   tgroup_distribution: TgroupEntry[];
   judge_breakdown: JudgeEntry[];
   pfam_coverage: { with_pfam: number; without_pfam: number };
-  top_tgroups: TopTgroup[];
 }
 
 export default function DomainsPage() {
@@ -55,8 +51,8 @@ export default function DomainsPage() {
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="animate-pulse">
           <div className="h-8 bg-gray-200 rounded w-64 mb-6"></div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            {[1, 2, 3].map(i => <div key={i} className="h-24 bg-gray-200 rounded"></div>)}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            {[1, 2, 3, 4].map(i => <div key={i} className="h-24 bg-gray-200 rounded"></div>)}
           </div>
           <div className="h-96 bg-gray-200 rounded"></div>
         </div>
@@ -78,6 +74,7 @@ export default function DomainsPage() {
   const totalJudge = data.judge_breakdown.reduce((s, j) => s + j.count, 0);
   const totalPfam = data.pfam_coverage.with_pfam + data.pfam_coverage.without_pfam;
   const maxTgroupCount = data.tgroup_distribution[0]?.count || 1;
+  const singleDomainProteins = data.proteins_with_domains - data.multi_domain_proteins;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -104,8 +101,8 @@ export default function DomainsPage() {
           </div>
         </div>
         <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <div className="text-2xl font-bold text-gray-900">{data.tgroup_distribution.length}</div>
-          <div className="text-sm text-gray-500">T-groups (top 30 shown)</div>
+          <div className="text-2xl font-bold text-gray-900">{data.unique_tgroups.toLocaleString()}</div>
+          <div className="text-sm text-gray-500">Unique T-groups</div>
         </div>
       </div>
 
@@ -179,7 +176,7 @@ export default function DomainsPage() {
           </div>
         </div>
 
-        {/* Domain Stats */}
+        {/* Quick Stats */}
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <h2 className="font-semibold text-gray-900 mb-4">Quick Stats</h2>
           <dl className="space-y-3 text-sm">
@@ -193,60 +190,51 @@ export default function DomainsPage() {
             </div>
             <div className="flex justify-between">
               <dt className="text-gray-500">Unique T-groups</dt>
-              <dd className="font-medium text-gray-900">{data.top_tgroups.length}+</dd>
+              <dd className="font-medium text-gray-900">{data.unique_tgroups.toLocaleString()}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Good Domains</dt>
-              <dd className="font-medium text-green-600">
-                {data.judge_breakdown.find(j => j.judge === 'good_domain')?.count.toLocaleString() || '0'}
-              </dd>
+              <dt className="text-gray-500">Multi-domain Proteins</dt>
+              <dd className="font-medium text-gray-900">{data.multi_domain_proteins.toLocaleString()}</dd>
             </div>
             <div className="flex justify-between">
-              <dt className="text-gray-500">Low Confidence</dt>
-              <dd className="font-medium text-yellow-600">
-                {data.judge_breakdown.find(j => j.judge === 'low_confidence')?.count.toLocaleString() || '0'}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-gray-500">Partial / Simple</dt>
-              <dd className="font-medium text-orange-600">
-                {(
-                  (data.judge_breakdown.find(j => j.judge === 'partial_domain')?.count || 0) +
-                  (data.judge_breakdown.find(j => j.judge === 'simple_topology')?.count || 0)
-                ).toLocaleString()}
-              </dd>
+              <dt className="text-gray-500">Single-domain Proteins</dt>
+              <dd className="font-medium text-gray-900">{singleDomainProteins.toLocaleString()}</dd>
             </div>
           </dl>
         </div>
       </div>
 
       {/* T-group Distribution */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-8">
+      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
           <h2 className="font-semibold text-gray-900">T-group Distribution (Top 30)</h2>
         </div>
         <div className="p-4 space-y-2">
           {data.tgroup_distribution.map(t => {
             const pct = (t.count / maxTgroupCount) * 100;
-            const goodPct = t.count > 0 ? (t.judge_good / t.count) * 100 : 0;
+            const pfamPct = t.count > 0 ? (t.with_pfam / t.count) * 100 : 0;
+            const label = t.t_group_name || t.t_group;
             return (
               <div key={t.t_group} className="flex items-center gap-3">
-                <div className="w-48 text-sm font-mono text-gray-700 truncate flex-shrink-0" title={t.t_group}>
-                  {t.t_group}
+                <div
+                  className="w-48 text-sm text-gray-700 truncate flex-shrink-0"
+                  title={`${t.t_group}${t.t_group_name ? ' — ' + t.t_group_name : ''}`}
+                >
+                  {label}
                 </div>
                 <div className="flex-1 bg-gray-100 rounded-full h-5 relative overflow-hidden">
                   <div
-                    className="bg-green-400 h-5 rounded-l-full absolute left-0"
-                    style={{ width: `${pct * (goodPct / 100)}%` }}
-                    title={`Good: ${t.judge_good}`}
+                    className="bg-blue-500 h-5 rounded-l-full absolute left-0"
+                    style={{ width: `${pct * (pfamPct / 100)}%` }}
+                    title={`With Pfam: ${t.with_pfam.toLocaleString()}`}
                   />
                   <div
-                    className="bg-yellow-300 h-5 absolute"
+                    className="bg-gray-300 h-5 absolute"
                     style={{
-                      left: `${pct * (goodPct / 100)}%`,
-                      width: `${pct * ((100 - goodPct) / 100)}%`,
+                      left: `${pct * (pfamPct / 100)}%`,
+                      width: `${pct * ((100 - pfamPct) / 100)}%`,
                     }}
-                    title={`Ambiguous/Other: ${t.judge_ambiguous}`}
+                    title={`Without Pfam: ${t.without_pfam.toLocaleString()}`}
                   />
                 </div>
                 <div className="w-16 text-sm text-gray-600 text-right flex-shrink-0">
@@ -258,38 +246,11 @@ export default function DomainsPage() {
         </div>
         <div className="px-4 py-2 border-t border-gray-200 bg-gray-50 flex items-center gap-4 text-xs text-gray-500">
           <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-green-400"></span> Good domains
+            <span className="w-3 h-3 rounded bg-blue-500"></span> With Pfam
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-3 h-3 rounded bg-yellow-300"></span> Ambiguous / Other
+            <span className="w-3 h-3 rounded bg-gray-300"></span> Without Pfam
           </span>
-        </div>
-      </div>
-
-      {/* Full T-group Table */}
-      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <h2 className="font-semibold text-gray-900">All T-groups (Top 50)</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">T-group</th>
-                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Domains</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sources</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {data.top_tgroups.map(t => (
-                <tr key={t.t_group} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 text-sm font-mono text-gray-900">{t.t_group}</td>
-                  <td className="px-3 py-2 text-sm text-gray-900 text-right">{t.count.toLocaleString()}</td>
-                  <td className="px-3 py-2 text-sm text-gray-600">{t.sources}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </div>
       </div>
     </div>
