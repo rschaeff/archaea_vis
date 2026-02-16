@@ -12,29 +12,44 @@ interface PaeHeatmapProps {
   height?: number;
 }
 
-// AlphaFold PAE color scale: dark blue (0) → white (15) → red (30+)
-function paeColor(value: number): [number, number, number] {
-  // Clamp to [0, 31.75] as in AF2/AF3
-  const v = Math.max(0, Math.min(31.75, value));
-  const t = v / 31.75;
+/**
+ * PAE color scale: dark green (0 Å) → white (maxVal Å)
+ * Uses a data-adaptive max so well-predicted structures get full contrast
+ * instead of washing out in a 0–31.75 range.
+ */
+function paeColor(value: number, maxVal: number): [number, number, number] {
+  const v = Math.max(0, Math.min(maxVal, value));
+  const t = v / maxVal; // 0 = best (dark green), 1 = worst (white)
+  return [
+    Math.round(0 + t * 255),
+    Math.round(100 + t * 155),
+    Math.round(0 + t * 255),
+  ];
+}
 
-  if (t < 0.5) {
-    // Dark green/blue → white
-    const s = t * 2;
-    return [
-      Math.round(0 + s * 255),
-      Math.round(83 + s * 172),
-      Math.round(214 + s * 41),
-    ];
-  } else {
-    // White → dark red
-    const s = (t - 0.5) * 2;
-    return [
-      Math.round(255 - s * 55),
-      Math.round(255 - s * 220),
-      Math.round(255 - s * 235),
-    ];
+/**
+ * Compute 95th percentile of PAE values to set an adaptive color ceiling.
+ * Falls back to 31.75 if data is empty.
+ */
+function computeP95(pae: number[][]): number {
+  const n = pae.length;
+  if (n === 0) return 31.75;
+
+  // Sample values — for large matrices, sample rather than sort all n^2 values
+  const sampleSize = Math.min(n * n, 50000);
+  const step = Math.max(1, Math.floor((n * n) / sampleSize));
+  const samples: number[] = [];
+
+  for (let i = 0; i < n * n; i += step) {
+    const row = Math.floor(i / n);
+    const col = i % n;
+    samples.push(pae[row][col]);
   }
+
+  samples.sort((a, b) => a - b);
+  const p95 = samples[Math.floor(samples.length * 0.95)];
+  // Ensure a reasonable minimum range and cap at AF default
+  return Math.max(5, Math.min(31.75, Math.ceil(p95)));
 }
 
 export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps) {
@@ -42,6 +57,7 @@ export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [size, setSize] = useState(0);
+  const [colorMax, setColorMax] = useState(31.75);
   const [hovering, setHovering] = useState<{ x: number; y: number; value: number } | null>(null);
   const paeDataRef = useRef<number[][] | null>(null);
 
@@ -65,7 +81,9 @@ export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps)
 
         paeDataRef.current = data.pae;
         setSize(data.size);
-        renderHeatmap(data.pae);
+        const maxVal = computeP95(data.pae);
+        setColorMax(maxVal);
+        renderHeatmap(data.pae, maxVal);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : 'Failed to load PAE');
@@ -75,7 +93,7 @@ export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps)
       }
     }
 
-    function renderHeatmap(pae: number[][]) {
+    function renderHeatmap(pae: number[][], maxVal: number) {
       const canvas = canvasRef.current;
       if (!canvas) return;
 
@@ -94,7 +112,7 @@ export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps)
         const row = pae[y];
         for (let x = 0; x < n; x++) {
           const idx = (y * n + x) * 4;
-          const [r, g, b] = paeColor(row[x]);
+          const [r, g, b] = paeColor(row[x], maxVal);
           data[idx] = r;
           data[idx + 1] = g;
           data[idx + 2] = b;
@@ -174,10 +192,10 @@ export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps)
                 className="h-3 rounded"
                 style={{
                   width: '120px',
-                  background: 'linear-gradient(to right, #0053d6, #ffffff, #c82314)',
+                  background: 'linear-gradient(to right, #006400, #ffffff)',
                 }}
               />
-              <span>30+</span>
+              <span>{colorMax}+</span>
             </div>
           </div>
         </div>
