@@ -4,6 +4,7 @@ const colorClasses: Record<string, { bg: string; text: string }> = {
   purple: { bg: 'bg-purple-50 border-purple-200', text: 'text-purple-700' },
   orange: { bg: 'bg-orange-50 border-orange-200', text: 'text-orange-700' },
   red: { bg: 'bg-red-50 border-red-200', text: 'text-red-700' },
+  amber: { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700' },
   gray: { bg: 'bg-gray-50 border-gray-200', text: 'text-gray-700' },
 };
 

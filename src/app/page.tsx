@@ -89,9 +89,9 @@ export default function Dashboard() {
           color="purple"
         />
         <StatCard
-          title="Novel Fold Clusters"
-          value={stats.novel_fold_clusters.toLocaleString()}
-          subtitle={`${stats.novel_fold_proteins.toLocaleString()} proteins`}
+          title="Novel Clusters"
+          value={(stats.novel_fold_clusters + stats.novel_domain_clusters).toLocaleString()}
+          subtitle={`${stats.novel_fold_clusters} dark protein + ${stats.novel_domain_clusters.toLocaleString()} orphan domain`}
           color="red"
         />
       </div>
@@ -136,12 +136,12 @@ export default function Dashboard() {
           href="/novel-folds"
           className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow"
         >
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Novel Fold Clusters</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Novel Domain Analysis</h3>
           <p className="text-gray-600 text-sm mb-4">
-            Structurally novel proteins grouped by foldseek similarity — cross-phylum analysis
+            Two-tier novelty: dark proteins and orphan domains clustered by foldseek structural similarity
           </p>
           <div className="flex items-center text-purple-600 font-medium">
-            <span>{stats.novel_fold_clusters.toLocaleString()} clusters</span>
+            <span>{(stats.novel_fold_clusters + stats.novel_domain_clusters).toLocaleString()} clusters</span>
             <span className="ml-2">&rarr;</span>
           </div>
         </Link>

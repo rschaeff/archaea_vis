@@ -286,6 +286,8 @@ export interface ArchaeaStats {
   curation_candidates: number;
   novel_fold_clusters: number;
   novel_fold_proteins: number;
+  novel_domain_clusters: number;
+  novel_domain_count: number;
   status_breakdown: {
     pending: number;
     in_review: number;

@@ -19,6 +19,7 @@ export async function GET() {
       clusterCount,
       candidateCount,
       novelFoldCounts,
+      novelDomainCounts,
       statusBreakdown,
       noveltyBreakdown,
       sourceBreakdown,
@@ -54,12 +55,20 @@ export async function GET() {
         SELECT COUNT(*) AS count FROM archaea.curation_candidates
       `),
 
-      // Novel fold counts
+      // Novel fold counts (Tier 1)
       query<{ clusters: string; proteins: string }>(`
         SELECT
           COUNT(DISTINCT cluster_id) AS clusters,
-          (SELECT COUNT(*) FROM archaea.novel_fold_clusters) AS proteins
+          COUNT(*) AS proteins
         FROM archaea.novel_fold_clusters
+      `),
+
+      // Novel domain counts (Tier 2)
+      query<{ clusters: string; domains: string }>(`
+        SELECT
+          COUNT(DISTINCT cluster_id) AS clusters,
+          COUNT(*) AS domains
+        FROM archaea.novel_domain_clusters
       `),
 
       // Status breakdown
@@ -110,6 +119,8 @@ export async function GET() {
       curation_candidates: parseInt(candidateCount.rows[0]?.count || '0'),
       novel_fold_clusters: parseInt(novelFoldCounts.rows[0]?.clusters || '0'),
       novel_fold_proteins: parseInt(novelFoldCounts.rows[0]?.proteins || '0'),
+      novel_domain_clusters: parseInt(novelDomainCounts.rows[0]?.clusters || '0'),
+      novel_domain_count: parseInt(novelDomainCounts.rows[0]?.domains || '0'),
       status_breakdown: {
         pending: 0,
         in_review: 0,
