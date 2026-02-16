@@ -6,7 +6,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { noveltyColor } from '@/lib/utils';
 
 interface Organism {
   id: number;
@@ -17,22 +16,22 @@ interface Organism {
   genome_accession: string;
   tax_id: number;
   source_category: string;
-  completeness: number | null;
-  contamination: number | null;
-  quality_tier: string | null;
   protein_count: number;
   actual_protein_count: string;
   proteins_with_structures: string;
+  missing_structures: string;
   proteins_with_pae: string;
   domain_count: string;
   proteins_with_domains: string;
   good_domains: string;
+  unclassified: string;
   novel_fold_count: string;
+  novel_t1_clusters: string;
+  novel_t1_proteins: string;
+  novel_t2_clusters: string;
+  novel_t2_domains: string;
   avg_plddt: string | null;
   avg_quality_score: string | null;
-  curation_pending: string;
-  curation_classified: string;
-  curation_total: string;
 }
 
 interface FilterOption {
@@ -51,7 +50,7 @@ interface OrganismData {
 
 type SortKey = 'organism_name' | 'protein_count' | 'proteins_with_structures' |
   'proteins_with_domains' | 'domain_count' | 'novel_fold_count' | 'avg_plddt' |
-  'completeness' | 'curation_pending';
+  'missing_structures' | 'unclassified';
 
 export default function OrganismsPage() {
   const [data, setData] = useState<OrganismData | null>(null);
@@ -89,9 +88,6 @@ export default function OrganismsPage() {
       setSortOrder(key === 'organism_name' ? 'ASC' : 'DESC');
     }
   };
-
-  const sortIndicator = (key: SortKey) =>
-    sortBy === key ? (sortOrder === 'ASC' ? ' \u2191' : ' \u2193') : '';
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
@@ -155,8 +151,8 @@ export default function OrganismsPage() {
                 <SortHeader label="Domains" sortKey="domain_count" current={sortBy} order={sortOrder} onClick={toggleSort} right />
                 <SortHeader label="Avg pLDDT" sortKey="avg_plddt" current={sortBy} order={sortOrder} onClick={toggleSort} right />
                 <SortHeader label="Novel" sortKey="novel_fold_count" current={sortBy} order={sortOrder} onClick={toggleSort} right />
-                <SortHeader label="Pending" sortKey="curation_pending" current={sortBy} order={sortOrder} onClick={toggleSort} right />
-                <SortHeader label="Complete" sortKey="completeness" current={sortBy} order={sortOrder} onClick={toggleSort} right />
+                <SortHeader label="No Structure" sortKey="missing_structures" current={sortBy} order={sortOrder} onClick={toggleSort} right />
+                <SortHeader label="Unclassified" sortKey="unclassified" current={sortBy} order={sortOrder} onClick={toggleSort} right />
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -178,9 +174,13 @@ export default function OrganismsPage() {
                   const domains = parseInt(org.domain_count);
                   const domProteins = parseInt(org.proteins_with_domains);
                   const domPct = proteins > 0 ? (domProteins / proteins * 100).toFixed(0) : '0';
-                  const novel = parseInt(org.novel_fold_count);
-                  const pending = parseInt(org.curation_pending);
-                  const curTotal = parseInt(org.curation_total);
+                  const novelT1 = parseInt(org.novel_t1_clusters);
+                  const novelT2 = parseInt(org.novel_t2_clusters);
+                  const novel = novelT1 + novelT2;
+                  const missing = parseInt(org.missing_structures);
+                  const missingPct = proteins > 0 ? (missing / proteins * 100).toFixed(0) : '0';
+                  const unclassified = parseInt(org.unclassified);
+                  const unclPct = structures > 0 ? (unclassified / structures * 100).toFixed(0) : '0';
 
                   return (
                     <tr key={org.id} className="hover:bg-gray-50">
@@ -223,27 +223,39 @@ export default function OrganismsPage() {
                       </td>
                       <td className="px-3 py-2 text-sm text-right">
                         {novel > 0 ? (
-                          <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 text-purple-800">
+                          <span
+                            className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 text-purple-800"
+                            title={`T1: ${novelT1} dark protein clusters, T2: ${novelT2} orphan domain clusters`}
+                          >
                             {novel}
                           </span>
                         ) : '-'}
                       </td>
                       <td className="px-3 py-2 text-sm text-right">
-                        {curTotal > 0 ? (
-                          <span className={pending > 0 ? 'text-yellow-600' : 'text-green-600'}>
-                            {pending}/{curTotal}
+                        {missing > 0 ? (
+                          <span
+                            className="text-orange-600"
+                            title={`${missing.toLocaleString()} proteins without predicted structures (${missingPct}% of total)`}
+                          >
+                            {missing.toLocaleString()}
+                            <span className="text-gray-400 text-xs ml-1">({missingPct}%)</span>
                           </span>
-                        ) : '-'}
+                        ) : (
+                          <span className="text-green-600 text-xs">complete</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-sm text-right">
-                        {org.completeness != null ? (
-                          <span className={
-                            org.completeness >= 95 ? 'text-green-600' :
-                            org.completeness >= 80 ? 'text-yellow-600' : 'text-red-600'
-                          }>
-                            {Number(org.completeness).toFixed(1)}%
+                        {unclassified > 0 ? (
+                          <span
+                            className="text-amber-600"
+                            title={`${unclassified.toLocaleString()} proteins with structures but no DPAM domain assignments (${unclPct}% of structures)`}
+                          >
+                            {unclassified.toLocaleString()}
+                            <span className="text-gray-400 text-xs ml-1">({unclPct}%)</span>
                           </span>
-                        ) : '-'}
+                        ) : (
+                          <span className="text-green-600 text-xs">complete</span>
+                        )}
                       </td>
                     </tr>
                   );

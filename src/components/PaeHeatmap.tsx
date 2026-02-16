@@ -109,7 +109,8 @@ export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps)
       const data = imageData.data;
 
       for (let y = 0; y < n; y++) {
-        const row = pae[y];
+        // Flip vertically: canvas row y draws PAE row (n-1-y)
+        const row = pae[n - 1 - y];
         for (let x = 0; x < n; x++) {
           const idx = (y * n + x) * 4;
           const [r, g, b] = paeColor(row[x], maxVal);
@@ -139,7 +140,9 @@ export default function PaeHeatmap({ proteinId, height = 400 }: PaeHeatmapProps)
     const y = Math.floor((e.clientY - rect.top) * scaleY);
 
     if (x >= 0 && x < pae.length && y >= 0 && y < pae.length) {
-      setHovering({ x: x + 1, y: y + 1, value: pae[y][x] });
+      // Flip Y: canvas top = highest residue number
+      const paeRow = pae.length - 1 - y;
+      setHovering({ x: x + 1, y: paeRow + 1, value: pae[paeRow][x] });
     }
   };
 
