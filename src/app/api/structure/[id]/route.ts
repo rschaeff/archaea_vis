@@ -72,14 +72,18 @@ export async function GET(
 
     const structureContent = await fs.readFile(cif_file, 'utf-8');
 
-    return new NextResponse(structureContent, {
-      status: 200,
-      headers: {
-        'Content-Type': 'chemical/x-cif',
-        'Cache-Control': 'public, max-age=86400',
-        'X-Protein-ID': proteinId,
-      },
-    });
+    const download = request.nextUrl.searchParams.get('download') === 'true';
+    const headers: Record<string, string> = {
+      'Content-Type': 'chemical/x-cif',
+      'Cache-Control': 'public, max-age=86400',
+      'X-Protein-ID': proteinId,
+    };
+    if (download) {
+      const filename = `${proteinId.replace(/\|/g, '_')}.cif`;
+      headers['Content-Disposition'] = `attachment; filename="${filename}"`;
+    }
+
+    return new NextResponse(structureContent, { status: 200, headers });
   } catch (error) {
     console.error('Structure API error:', error);
     return NextResponse.json(

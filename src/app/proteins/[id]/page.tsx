@@ -96,10 +96,31 @@ export default function ProteinDetailPage() {
                 UniProt: {protein.uniprot_acc}
               </a>
             )}
+            {protein.source === 'AFDB' && protein.uniprot_acc && (
+              <a
+                href={`https://alphafold.ebi.ac.uk/entry/${protein.uniprot_acc}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 text-sm"
+              >
+                AlphaFold DB
+              </a>
+            )}
             {protein.uniparc_id && (
               <span className="text-sm text-gray-600">UniParc: {protein.uniparc_id}</span>
             )}
             <span className="text-sm text-gray-600">{protein.sequence_length} residues</span>
+            {protein.has_structure && (
+              <a
+                href={`/api/structure/${protein.protein_id}?download=true`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-700 hover:bg-gray-200"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Download CIF
+              </a>
+            )}
             {protein.novelty_category && (
               <span className={`px-2 py-0.5 text-xs font-medium rounded ${noveltyColor(protein.novelty_category)}`}>
                 {protein.novelty_category}
