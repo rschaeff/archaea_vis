@@ -282,36 +282,12 @@ export interface ArchaeaStats {
   with_quality_metrics: number;
   total_domains: number;
   proteins_with_domains: number;
-  total_clusters: number;
-  curation_candidates: number;
   novel_fold_clusters: number;
   novel_fold_proteins: number;
   novel_domain_clusters: number;
   novel_domain_count: number;
-  status_breakdown: {
-    pending: number;
-    in_review: number;
-    classified: number;
-    deferred: number;
-    rejected: number;
-    needs_reanalysis: number;
-  };
-  novelty_breakdown: {
-    dark: number;
-    'sequence-orphan': number;
-    divergent: number;
-    known: number;
-  };
   source_breakdown: Record<string, number>;
   domain_judge_breakdown: Record<string, number>;
-}
-
-export interface CurationProgress {
-  novelty_category: string;
-  priority_category: string;
-  curation_status: string;
-  count: number;
-  novel_fold_count: number;
 }
 
 // ============================================

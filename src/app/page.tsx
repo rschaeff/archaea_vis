@@ -1,18 +1,51 @@
 'use client';
 
 /**
- * Dashboard — Overview of archaeal protein dataset and pipeline progress
+ * Dashboard — Archaea Protein Atlas overview
+ *
+ * Fetches /api/stats and /api/clustering in parallel to show
+ * protein coverage, clustering insights, and ECOD novelty.
  */
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import StatCard from '@/components/StatCard';
 import ProgressBar from '@/components/ProgressBar';
-import type { ArchaeaStats, CurationProgress } from '@/lib/types';
+import type { ArchaeaStats } from '@/lib/types';
+
+interface ClusteringSummaryItem {
+  type: string;
+  label: string;
+  method: string;
+  clusters: number;
+  members: number;
+  singletons: number;
+  largest: number;
+  pending?: boolean;
+}
+
+interface CrossComparison {
+  both_clustered: number;
+  rescued_by_structure: number;
+  both_singleton: number;
+  seq_only: number;
+  total: number;
+}
+
+interface EcodNovelty {
+  has_ecod: number;
+  novel: number;
+}
+
+interface ClusteringData {
+  summary: ClusteringSummaryItem[];
+  cross_comparison: CrossComparison;
+  ecod_novelty: EcodNovelty;
+}
 
 interface DashboardData {
   stats: ArchaeaStats;
-  progress: CurationProgress[];
+  clustering: ClusteringData;
 }
 
 export default function Dashboard() {
@@ -21,13 +54,20 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/stats')
-      .then(res => {
-        if (!res.ok) throw new Error('Failed to fetch stats');
-        return res.json();
-      })
-      .then(setData)
-      .catch(err => setError(err instanceof Error ? err.message : 'Failed to load statistics'))
+    Promise.all([
+      fetch('/api/stats').then(r => {
+        if (!r.ok) throw new Error('Failed to fetch stats');
+        return r.json();
+      }),
+      fetch('/api/clustering').then(r => {
+        if (!r.ok) throw new Error('Failed to fetch clustering');
+        return r.json();
+      }),
+    ])
+      .then(([statsData, clusteringData]) =>
+        setData({ stats: statsData.stats, clustering: clusteringData })
+      )
+      .catch(err => setError(err instanceof Error ? err.message : 'Failed to load dashboard'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -35,9 +75,15 @@ export default function Dashboard() {
     return (
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-64 mb-8"></div>
+          <div className="h-8 bg-gray-200 rounded w-64 mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-96 mb-8"></div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
             {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-32 bg-gray-200 rounded"></div>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-4 mb-8">
+            {[1, 2, 3].map(i => (
               <div key={i} className="h-32 bg-gray-200 rounded"></div>
             ))}
           </div>
@@ -57,20 +103,28 @@ export default function Dashboard() {
     );
   }
 
-  const stats = data!.stats;
+  const { stats, clustering } = data!;
+  const cross = clustering.cross_comparison;
+  const novelty = clustering.ecod_novelty;
+  const noveltyTotal = novelty.has_ecod + novelty.novel;
+  const novelPct = noveltyTotal > 0 ? ((novelty.novel / noveltyTotal) * 100).toFixed(1) : '0';
+
+  // summary[0] = protein_seq, summary[1] = protein_struct
+  const protSeq = clustering.summary.find(s => s.type === 'protein_seq');
+  const protStruct = clustering.summary.find(s => s.type === 'protein_struct');
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Archaea Protein Curation</h1>
+        <h1 className="text-3xl font-bold text-gray-900">Archaea Protein Atlas</h1>
         <p className="text-gray-600 mt-2">
-          Novel fold discovery in archaeal proteins using AlphaFold structure predictions
+          Structural characterization and novel fold discovery across 124,000+ archaeal proteins
         </p>
       </div>
 
       {/* Primary Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard
           title="Total Proteins"
           value={stats.total_proteins.toLocaleString()}
@@ -89,45 +143,47 @@ export default function Dashboard() {
           color="purple"
         />
         <StatCard
-          title="Novel Clusters"
+          title="Novel to ECOD"
+          value={`${novelPct}%`}
+          subtitle={`${novelty.novel.toLocaleString()} proteins`}
+          color="red"
+        />
+      </div>
+
+      {/* Secondary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <StatCard
+          title="Structural Families"
+          value={protStruct ? protStruct.clusters.toLocaleString() : '—'}
+          subtitle={protSeq ? `from ${protSeq.clusters.toLocaleString()} seq clusters` : ''}
+          color="orange"
+        />
+        <StatCard
+          title="Rescued by Structure"
+          value={cross.rescued_by_structure.toLocaleString()}
+          subtitle={cross.total > 0 ? `${((cross.rescued_by_structure / cross.total) * 100).toFixed(0)}% of proteins` : ''}
+          color="green"
+        />
+        <StatCard
+          title="Novel Fold Clusters"
           value={(stats.novel_fold_clusters + stats.novel_domain_clusters).toLocaleString()}
           subtitle={`${stats.novel_fold_clusters} dark protein + ${stats.novel_domain_clusters.toLocaleString()} orphan domain`}
           color="red"
         />
       </div>
 
-      {/* Secondary Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
-        <StatCard
-          title="Structural Clusters"
-          value={stats.total_clusters.toLocaleString()}
-          color="orange"
-        />
-        <StatCard
-          title="Curation Candidates"
-          value={stats.curation_candidates.toLocaleString()}
-          color="purple"
-        />
-        <StatCard
-          title="Quality Metrics"
-          value={stats.with_quality_metrics.toLocaleString()}
-          subtitle={`${((stats.with_quality_metrics / stats.total_proteins) * 100).toFixed(1)}%`}
-          color="green"
-        />
-      </div>
-
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <Link
-          href="/curation?novelty=dark"
+          href="/clustering"
           className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow"
         >
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Dark Proteins</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Clustering Analysis</h3>
           <p className="text-gray-600 text-sm mb-4">
-            Proteins with no sequence homologs — highest priority for novel fold discovery
+            Protein and domain clustering across sequence and structure
           </p>
-          <div className="flex items-center text-red-600 font-medium">
-            <span>{stats.novelty_breakdown.dark.toLocaleString()} proteins</span>
+          <div className="flex items-center text-orange-600 font-medium">
+            <span>{protStruct ? protStruct.clusters.toLocaleString() : '—'} structural families</span>
             <span className="ml-2">&rarr;</span>
           </div>
         </Link>
@@ -136,103 +192,95 @@ export default function Dashboard() {
           href="/novel-folds"
           className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow"
         >
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Novel Domain Analysis</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Novel Fold Discovery</h3>
           <p className="text-gray-600 text-sm mb-4">
-            Two-tier novelty: dark proteins and orphan domains clustered by foldseek structural similarity
+            Two-tier novelty: dark proteins and orphan domains
           </p>
-          <div className="flex items-center text-purple-600 font-medium">
+          <div className="flex items-center text-red-600 font-medium">
             <span>{(stats.novel_fold_clusters + stats.novel_domain_clusters).toLocaleString()} clusters</span>
             <span className="ml-2">&rarr;</span>
           </div>
         </Link>
 
         <Link
-          href="/clusters"
+          href="/organisms"
           className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow"
         >
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Structural Clusters</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">Browse Organisms</h3>
           <p className="text-gray-600 text-sm mb-4">
-            All structural clusters from foldseek — browse by size and novelty content
+            65 archaeal genomes across 21 phyla
           </p>
-          <div className="flex items-center text-orange-600 font-medium">
-            <span>{stats.total_clusters.toLocaleString()} clusters</span>
+          <div className="flex items-center text-blue-600 font-medium">
+            <span>{stats.total_proteins.toLocaleString()} proteins</span>
             <span className="ml-2">&rarr;</span>
           </div>
         </Link>
       </div>
 
-      {/* Breakdowns */}
+      {/* Insight Panels */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        {/* Novelty Breakdown */}
+        {/* Sequence vs Structure */}
         <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">By Novelty Category</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Sequence vs Structure</h3>
           <div className="space-y-3">
             <ProgressBar
-              label="Dark (no homologs)"
-              value={stats.novelty_breakdown.dark}
-              total={stats.curation_candidates || 1}
-              color="bg-red-500"
-            />
-            <ProgressBar
-              label="Sequence Orphan"
-              value={stats.novelty_breakdown['sequence-orphan']}
-              total={stats.curation_candidates || 1}
-              color="bg-orange-500"
-            />
-            <ProgressBar
-              label="Divergent"
-              value={stats.novelty_breakdown.divergent}
-              total={stats.curation_candidates || 1}
-              color="bg-yellow-500"
-            />
-            <ProgressBar
-              label="Known"
-              value={stats.novelty_breakdown.known}
-              total={stats.curation_candidates || 1}
-              color="bg-green-500"
-            />
-          </div>
-        </div>
-
-        {/* Curation Status */}
-        <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Curation Status</h3>
-          <div className="space-y-3">
-            <ProgressBar
-              label="Pending"
-              value={stats.status_breakdown.pending}
-              total={stats.curation_candidates || 1}
-              color="bg-gray-500"
-            />
-            <ProgressBar
-              label="In Review"
-              value={stats.status_breakdown.in_review}
-              total={stats.curation_candidates || 1}
+              label="Both clustered"
+              value={cross.both_clustered}
+              total={cross.total || 1}
               color="bg-blue-500"
             />
             <ProgressBar
-              label="Classified"
-              value={stats.status_breakdown.classified}
-              total={stats.curation_candidates || 1}
+              label="Rescued by structure"
+              value={cross.rescued_by_structure}
+              total={cross.total || 1}
               color="bg-green-500"
             />
             <ProgressBar
-              label="Deferred"
-              value={stats.status_breakdown.deferred}
-              total={stats.curation_candidates || 1}
+              label="Sequence only"
+              value={cross.seq_only}
+              total={cross.total || 1}
               color="bg-yellow-500"
             />
             <ProgressBar
-              label="Rejected"
-              value={stats.status_breakdown.rejected}
-              total={stats.curation_candidates || 1}
+              label="Both singleton"
+              value={cross.both_singleton}
+              total={cross.total || 1}
+              color="bg-gray-400"
+            />
+          </div>
+          <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-3">
+            <span className="text-green-800 text-sm font-medium">
+              {cross.rescued_by_structure.toLocaleString()} proteins rescued by structural clustering
+            </span>
+          </div>
+        </div>
+
+        {/* ECOD Sequence Homology */}
+        <div className="bg-white border border-gray-200 rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">ECOD Sequence Homology</h3>
+          <div className="space-y-3">
+            <ProgressBar
+              label="Has ECOD homolog"
+              value={novelty.has_ecod}
+              total={noveltyTotal || 1}
+              color="bg-blue-500"
+            />
+            <ProgressBar
+              label="Novel (no ECOD match)"
+              value={novelty.novel}
+              total={noveltyTotal || 1}
               color="bg-red-500"
             />
+          </div>
+          <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+            <span className="text-red-800 text-sm font-medium">
+              {novelPct}% of proteins have no ECOD sequence homolog
+            </span>
           </div>
         </div>
       </div>
 
-      {/* Source and Domain Breakdowns */}
+      {/* Bottom Panels */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Protein Sources */}
         <div className="bg-white border border-gray-200 rounded-lg p-6">
@@ -247,9 +295,9 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Domain Judge Breakdown */}
+        {/* Domain Classification */}
         <div className="bg-white border border-gray-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Domain Classification (Judge)</h3>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Domain Classification</h3>
           <div className="space-y-3">
             {Object.entries(stats.domain_judge_breakdown).map(([judge, count]) => (
               <ProgressBar
