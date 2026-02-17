@@ -8,7 +8,7 @@ const navItems = [
   { href: '/organisms', label: 'Organisms' },
   { href: '/proteins', label: 'Proteins' },
   { href: '/domains', label: 'Domains' },
-  { href: '/clusters', label: 'Clusters' },
+  { href: '/clustering', label: 'Clustering' },
   { href: '/novel-folds', label: 'Novel Folds' },
   { href: '/curation', label: 'Curation' },
 ];
