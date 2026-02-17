@@ -2,8 +2,8 @@
  * GET /api/organisms/:id
  *
  * Returns detailed information for a single target organism (target_class),
- * including protein breakdown by novelty/source, domain stats, quality
- * distribution, and top proteins.
+ * including protein breakdown by source, domain stats, quality distribution,
+ * pipeline coverage gaps, novel fold proteins, and top proteins.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,36 +22,32 @@ export async function GET(
 
     const [
       classResult,
-      noveltyBreakdown,
       sourceBreakdown,
       judgeBreakdown,
       qualityDist,
-      curationBreakdown,
       topProteins,
-      novelFoldProteins,
+      novelT1Proteins,
+      novelT2Domains,
     ] = await Promise.all([
-      // Basic class info
+      // Basic class info + pipeline gap stats
       query(`
         SELECT tc.*,
           COUNT(tp.id) AS actual_protein_count,
           COUNT(tp.id) FILTER (WHERE tp.has_structure = true) AS proteins_with_structures,
-          COUNT(tp.id) FILTER (WHERE tp.has_pae = true) AS proteins_with_pae
+          COUNT(tp.id) FILTER (WHERE tp.has_structure = false) AS missing_structures,
+          COUNT(tp.id) FILTER (WHERE tp.has_pae = true) AS proteins_with_pae,
+          (SELECT COUNT(DISTINCT d.protein_id)
+           FROM archaea.domains d
+           JOIN archaea.target_proteins tp2 ON d.protein_id = tp2.protein_id
+           WHERE tp2.target_class_id = tc.id) AS proteins_with_domains,
+          (SELECT COUNT(*)
+           FROM archaea.domains d
+           JOIN archaea.target_proteins tp2 ON d.protein_id = tp2.protein_id
+           WHERE tp2.target_class_id = tc.id) AS domain_count
         FROM archaea.target_classes tc
         LEFT JOIN archaea.target_proteins tp ON tp.target_class_id = tc.id
         WHERE tc.id = $1
         GROUP BY tc.id
-      `, [classId]),
-
-      // Novelty breakdown
-      query<{ novelty_category: string; count: string }>(`
-        SELECT
-          COALESCE(cc.novelty_category, 'uncategorized') AS novelty_category,
-          COUNT(*) AS count
-        FROM archaea.target_proteins tp
-        LEFT JOIN archaea.curation_candidates cc ON cc.protein_id = tp.protein_id
-        WHERE tp.target_class_id = $1
-        GROUP BY novelty_category
-        ORDER BY count DESC
       `, [classId]),
 
       // Source breakdown
@@ -87,37 +83,40 @@ export async function GET(
         GROUP BY bucket ORDER BY bucket
       `, [classId]),
 
-      // Curation status breakdown
-      query<{ curation_status: string; count: string }>(`
-        SELECT curation_status, COUNT(*) AS count
-        FROM archaea.curation_candidates cc
-        JOIN archaea.target_proteins tp ON cc.protein_id = tp.protein_id
-        WHERE tp.target_class_id = $1
-        GROUP BY curation_status ORDER BY count DESC
-      `, [classId]),
-
-      // Top proteins by quality
+      // Top proteins by quality (no stale curation joins)
       query(`
         SELECT tp.protein_id, tp.source, tp.sequence_length, tp.has_structure,
                sqm.mean_plddt, sqm.quality_score, sqm.af3_quality_category,
-               cc.novelty_category, cc.curation_status, cc.is_novel_fold
+               (SELECT COUNT(*) FROM archaea.domains d WHERE d.protein_id = tp.protein_id) AS domain_count
         FROM archaea.target_proteins tp
         LEFT JOIN archaea.structure_quality_metrics sqm ON sqm.protein_id = tp.protein_id
-        LEFT JOIN archaea.curation_candidates cc ON cc.protein_id = tp.protein_id
         WHERE tp.target_class_id = $1
         ORDER BY sqm.quality_score DESC NULLS LAST
         LIMIT 20
       `, [classId]),
 
-      // Novel fold proteins from this organism
+      // Tier 1 novel fold proteins (join on db_protein_id)
       query(`
-        SELECT nfc.protein_id, nfc.cluster_id, nfc.cluster_size,
+        SELECT nfc.db_protein_id AS protein_id, nfc.cluster_id, nfc.cluster_size,
                nfc.mean_plddt, nfc.phylum,
-               (SELECT COUNT(DISTINCT n2.phylum) FROM archaea.novel_fold_clusters n2 WHERE n2.cluster_id = nfc.cluster_id) AS num_phyla
+               (SELECT COUNT(DISTINCT n2.phylum) FROM archaea.novel_fold_clusters n2
+                WHERE n2.cluster_id = nfc.cluster_id) AS num_phyla
         FROM archaea.novel_fold_clusters nfc
-        JOIN archaea.target_proteins tp ON nfc.protein_id = tp.protein_id
+        JOIN archaea.target_proteins tp ON nfc.db_protein_id = tp.protein_id
         WHERE tp.target_class_id = $1
         ORDER BY nfc.cluster_size DESC
+      `, [classId]),
+
+      // Tier 2 novel orphan domains
+      query(`
+        SELECT ndc.protein_id, ndc.domain_num, ndc.domain_range,
+               ndc.cluster_id, ndc.cluster_size,
+               ndc.mean_plddt, ndc.dpam_prob, ndc.dali_zscore, ndc.phylum
+        FROM archaea.novel_domain_clusters ndc
+        JOIN archaea.target_proteins tp ON ndc.protein_id = tp.protein_id
+        WHERE tp.target_class_id = $1
+        ORDER BY ndc.cluster_size DESC
+        LIMIT 50
       `, [classId]),
     ]);
 
@@ -125,11 +124,15 @@ export async function GET(
       return NextResponse.json({ error: 'Organism not found' }, { status: 404 });
     }
 
+    const org = classResult.rows[0];
+    const structures = parseInt(org.proteins_with_structures);
+    const proteinsWithDomains = parseInt(org.proteins_with_domains);
+
     return NextResponse.json({
-      organism: classResult.rows[0],
-      novelty_breakdown: noveltyBreakdown.rows.map(r => ({
-        category: r.novelty_category, count: parseInt(r.count),
-      })),
+      organism: {
+        ...org,
+        unclassified: structures - proteinsWithDomains,
+      },
       source_breakdown: sourceBreakdown.rows.map(r => ({
         source: r.source, count: parseInt(r.count),
       })),
@@ -139,11 +142,9 @@ export async function GET(
       quality_distribution: qualityDist.rows.map(r => ({
         bucket: r.bucket, count: parseInt(r.count),
       })),
-      curation_breakdown: curationBreakdown.rows.map(r => ({
-        status: r.curation_status, count: parseInt(r.count),
-      })),
       top_proteins: topProteins.rows,
-      novel_fold_proteins: novelFoldProteins.rows,
+      novel_t1_proteins: novelT1Proteins.rows,
+      novel_t2_domains: novelT2Domains.rows,
     });
   } catch (error) {
     console.error('Organism detail API error:', error);

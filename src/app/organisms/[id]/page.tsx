@@ -2,13 +2,13 @@
 
 /**
  * Organism Detail Page — per-genome breakdown of proteins, domains,
- * quality, curation, and novel folds.
+ * quality, pipeline gaps, and novel folds.
  */
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { noveltyColor, statusColor, judgeColor } from '@/lib/utils';
+import { judgeColor } from '@/lib/utils';
 
 interface OrganismDetail {
   organism: {
@@ -20,19 +20,18 @@ interface OrganismDetail {
     genome_accession: string;
     tax_id: number;
     source_category: string;
-    completeness: number | null;
-    contamination: number | null;
-    quality_tier: string | null;
     protein_count: number;
     actual_protein_count: string;
     proteins_with_structures: string;
+    missing_structures: string;
     proteins_with_pae: string;
+    proteins_with_domains: string;
+    domain_count: string;
+    unclassified: number;
   };
-  novelty_breakdown: { category: string; count: number }[];
   source_breakdown: { source: string; count: number }[];
   judge_breakdown: { judge: string; count: number }[];
   quality_distribution: { bucket: string; count: number }[];
-  curation_breakdown: { status: string; count: number }[];
   top_proteins: {
     protein_id: string;
     source: string;
@@ -41,16 +40,24 @@ interface OrganismDetail {
     mean_plddt: number | null;
     quality_score: number | null;
     af3_quality_category: string | null;
-    novelty_category: string | null;
-    curation_status: string | null;
-    is_novel_fold: boolean | null;
+    domain_count: string;
   }[];
-  novel_fold_proteins: {
+  novel_t1_proteins: {
     protein_id: string;
-    cluster_id: number;
+    cluster_id: string;
     cluster_size: number;
     num_phyla: number;
     mean_plddt: number | null;
+  }[];
+  novel_t2_domains: {
+    protein_id: string;
+    domain_num: number;
+    domain_range: string;
+    cluster_id: string;
+    cluster_size: number;
+    mean_plddt: number | null;
+    dpam_prob: number | null;
+    dali_zscore: number | null;
   }[];
 }
 
@@ -102,7 +109,10 @@ export default function OrganismDetailPage() {
   const { organism: org } = data;
   const proteins = parseInt(org.actual_protein_count);
   const structures = parseInt(org.proteins_with_structures);
-  const pae = parseInt(org.proteins_with_pae);
+  const missing = parseInt(org.missing_structures);
+  const domainCount = parseInt(org.domain_count);
+  const domainsProteins = parseInt(org.proteins_with_domains);
+  const unclassified = org.unclassified;
   const totalJudge = data.judge_breakdown.reduce((s, j) => s + j.count, 0);
 
   return (
@@ -133,15 +143,18 @@ export default function OrganismDetailPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
         <Card label="Proteins" value={proteins.toLocaleString()} />
         <Card label="Structures" value={structures.toLocaleString()} sub={`${proteins > 0 ? (structures / proteins * 100).toFixed(0) : 0}%`} />
-        <Card label="PAE Files" value={pae.toLocaleString()} sub={`${proteins > 0 ? (pae / proteins * 100).toFixed(0) : 0}%`} />
+        <Card label="Domains" value={domainCount.toLocaleString()} sub={`${domainsProteins.toLocaleString()} proteins`} />
         <Card
-          label="Completeness"
-          value={org.completeness != null ? `${Number(org.completeness).toFixed(1)}%` : '-'}
-          sub={org.quality_tier || undefined}
+          label="No Structure"
+          value={missing.toLocaleString()}
+          sub={missing > 0 ? `${(missing / proteins * 100).toFixed(0)}% gap` : 'complete'}
+          alert={missing > 0}
         />
         <Card
-          label="Contamination"
-          value={org.contamination != null ? `${Number(org.contamination).toFixed(1)}%` : '-'}
+          label="Unclassified"
+          value={unclassified.toLocaleString()}
+          sub={unclassified > 0 ? `${(unclassified / structures * 100).toFixed(0)}% of structures` : 'complete'}
+          alert={unclassified > 0}
         />
         <Card label="NCBI Tax ID" value={org.tax_id ? String(org.tax_id) : '-'} link={org.tax_id ? `https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=${org.tax_id}` : undefined} />
       </div>
@@ -178,21 +191,6 @@ export default function OrganismDetailPage() {
 
       {/* Breakdown Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-        {/* Novelty */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h3 className="font-semibold text-gray-900 mb-3">Novelty Breakdown</h3>
-          <div className="space-y-2">
-            {data.novelty_breakdown.map(n => (
-              <div key={n.category} className="flex items-center justify-between">
-                <span className={`px-2 py-0.5 text-xs font-medium rounded ${noveltyColor(n.category)}`}>
-                  {n.category}
-                </span>
-                <span className="text-sm text-gray-600">{n.count.toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* Domain Judges */}
         {totalJudge > 0 && (
           <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -248,23 +246,6 @@ export default function OrganismDetailPage() {
           </div>
         )}
 
-        {/* Curation */}
-        {data.curation_breakdown.length > 0 && (
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <h3 className="font-semibold text-gray-900 mb-3">Curation Status</h3>
-            <div className="space-y-2">
-              {data.curation_breakdown.map(c => (
-                <div key={c.status} className="flex items-center justify-between">
-                  <span className={`px-2 py-0.5 text-xs font-medium rounded ${statusColor(c.status)}`}>
-                    {c.status}
-                  </span>
-                  <span className="text-sm text-gray-600">{c.count.toLocaleString()}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Source */}
         {data.source_breakdown.length > 0 && (
           <div className="bg-white border border-gray-200 rounded-lg p-4">
@@ -281,11 +262,14 @@ export default function OrganismDetailPage() {
         )}
       </div>
 
-      {/* Novel Fold Proteins */}
-      {data.novel_fold_proteins.length > 0 && (
+      {/* Novel Fold Proteins — Tier 1 */}
+      {data.novel_t1_proteins.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
-          <div className="px-4 py-3 border-b border-gray-200 bg-purple-50">
-            <h3 className="font-semibold text-purple-900">Novel Fold Clusters ({data.novel_fold_proteins.length})</h3>
+          <div className="px-4 py-3 border-b border-gray-200 bg-red-50">
+            <h3 className="font-semibold text-red-900">
+              Tier 1: Dark Proteins ({data.novel_t1_proteins.length})
+            </h3>
+            <p className="text-xs text-red-700 mt-0.5">Zero DPAM domain assignments — fully novel</p>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
@@ -299,7 +283,7 @@ export default function OrganismDetailPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {data.novel_fold_proteins.map(nf => (
+                {data.novel_t1_proteins.map(nf => (
                   <tr key={nf.protein_id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-sm">
                       <Link href={`/proteins/${nf.protein_id}`} className="text-blue-600 hover:text-blue-800 font-mono">
@@ -308,13 +292,65 @@ export default function OrganismDetailPage() {
                     </td>
                     <td className="px-3 py-2 text-sm">
                       <Link href={`/novel-folds/${nf.cluster_id}`} className="text-blue-600 hover:text-blue-800">
-                        #{nf.cluster_id}
+                        {nf.cluster_id}
                       </Link>
                     </td>
                     <td className="px-3 py-2 text-sm text-gray-900 text-right">{nf.cluster_size}</td>
                     <td className="px-3 py-2 text-sm text-gray-900 text-right">{nf.num_phyla}</td>
                     <td className="px-3 py-2 text-sm text-right">
                       {nf.mean_plddt ? parseFloat(String(nf.mean_plddt)).toFixed(1) : '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Novel Domains — Tier 2 */}
+      {data.novel_t2_domains.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-gray-200 bg-amber-50">
+            <h3 className="font-semibold text-amber-900">
+              Tier 2: Orphan Domains ({data.novel_t2_domains.length}{data.novel_t2_domains.length >= 50 ? '+' : ''})
+            </h3>
+            <p className="text-xs text-amber-700 mt-0.5">Low-confidence DPAM, no Pfam — structurally novel domains</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Protein</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Dom#</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Range</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cluster</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Size</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">pLDDT</th>
+                  <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">DPAM Prob</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200">
+                {data.novel_t2_domains.map((nd, i) => (
+                  <tr key={`${nd.protein_id}_${nd.domain_num}_${i}`} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 text-sm">
+                      <Link href={`/proteins/${nd.protein_id}`} className="text-blue-600 hover:text-blue-800 font-mono">
+                        {nd.protein_id}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-900 text-right">{nd.domain_num}</td>
+                    <td className="px-3 py-2 text-sm font-mono text-gray-900">{nd.domain_range}</td>
+                    <td className="px-3 py-2 text-sm">
+                      <Link href={`/novel-folds/${nd.cluster_id}`} className="text-blue-600 hover:text-blue-800">
+                        {nd.cluster_id}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-900 text-right">{nd.cluster_size}</td>
+                    <td className="px-3 py-2 text-sm text-right">
+                      {nd.mean_plddt ? parseFloat(String(nd.mean_plddt)).toFixed(1) : '-'}
+                    </td>
+                    <td className="px-3 py-2 text-sm text-right">
+                      {nd.dpam_prob != null ? parseFloat(String(nd.dpam_prob)).toFixed(3) : '-'}
                     </td>
                   </tr>
                 ))}
@@ -334,12 +370,11 @@ export default function OrganismDetailPage() {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Protein</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Length</th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">pLDDT</th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Quality</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Novelty</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Novel Fold</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Domains</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -350,6 +385,7 @@ export default function OrganismDetailPage() {
                       {p.protein_id}
                     </Link>
                   </td>
+                  <td className="px-3 py-2 text-sm text-gray-600">{p.source}</td>
                   <td className="px-3 py-2 text-sm text-gray-900 text-right">{p.sequence_length}</td>
                   <td className="px-3 py-2 text-sm text-right">
                     {p.mean_plddt ? (
@@ -361,24 +397,8 @@ export default function OrganismDetailPage() {
                   <td className="px-3 py-2 text-sm text-gray-900 text-right">
                     {p.quality_score ? parseFloat(String(p.quality_score)).toFixed(2) : '-'}
                   </td>
-                  <td className="px-3 py-2 text-sm">
-                    {p.novelty_category ? (
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${noveltyColor(p.novelty_category)}`}>
-                        {p.novelty_category}
-                      </span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    {p.curation_status ? (
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${statusColor(p.curation_status)}`}>
-                        {p.curation_status}
-                      </span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    {p.is_novel_fold ? (
-                      <span className="px-2 py-0.5 text-xs font-medium rounded bg-purple-100 text-purple-800">Yes</span>
-                    ) : '-'}
+                  <td className="px-3 py-2 text-sm text-gray-900 text-right">
+                    {parseInt(String(p.domain_count)) || '-'}
                   </td>
                 </tr>
               ))}
@@ -390,12 +410,12 @@ export default function OrganismDetailPage() {
   );
 }
 
-function Card({ label, value, sub, link }: { label: string; value: string; sub?: string; link?: string }) {
+function Card({ label, value, sub, link, alert }: { label: string; value: string; sub?: string; link?: string; alert?: boolean }) {
   const content = (
     <>
-      <div className="text-xl font-bold text-gray-900">{value}</div>
+      <div className={`text-xl font-bold ${alert ? 'text-orange-600' : 'text-gray-900'}`}>{value}</div>
       <div className="text-xs text-gray-500">{label}</div>
-      {sub && <div className="text-xs text-gray-400 mt-0.5">{sub}</div>}
+      {sub && <div className={`text-xs mt-0.5 ${alert ? 'text-orange-500' : 'text-gray-400'}`}>{sub}</div>}
     </>
   );
 
