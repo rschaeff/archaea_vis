@@ -63,6 +63,7 @@ export interface Domain {
 export interface DomainPfamHit {
   domain_id: number;
   pfam_acc: string;
+  pfam_name: string | null;
   e_value: number;
   bit_score: number;
   query_start: number;
@@ -348,3 +349,37 @@ export interface ClusterResponse {
   cluster: ArchaeaCluster;
   members: ClusterMember[];
 }
+
+// ============================================
+// DXC Cluster Browser Types
+// ============================================
+
+export interface DxcClusterRow {
+  struct_cluster_id: string;   // DXC_NNNNN
+  cluster_size: number;
+  n_seq_clusters: number;
+  n_classes: number;
+  taxonomic_entropy: number | null;
+  n_xgroups: number;
+  n_tgroups: number;
+  dominant_tgroup: string | null;
+  dominant_tgroup_frac: number | null;
+  n_good_domain: number;
+  n_pfam_families: number;
+  deep_homology_score: number | null;
+}
+
+export interface DxcClusterDetail extends DxcClusterRow {
+  seq_entropy: number | null;
+  n_seq_singletons: number;
+  n_unannotated: number;
+  n_low_confidence: number;
+  n_with_pfam: number;
+  annotation_transfer_potential: number | null;
+}
+
+export interface DxcXgroupComposition { xgroup: string; n_tgroups: number; n_domains: number; n_good: number; n_low_conf: number; n_pfam: number; }
+export interface DxcMember { domain_id: number; protein_id: string; domain_num: string; range: string; judge: string|null; t_group: string|null; dpam_prob: number|null; pfam_hits: string|null; class_name: string|null; phylum: string|null; }
+export interface DxcPfamEvidence { pfam_acc: string; pfam_name: string|null; total_domains: number; xgroup_counts: Record<string,number>; }
+export interface DxcTaxonDist { class_name: string; phylum: string|null; count: number; }
+export interface BridgePair { xg1: string; xg2: string; n_clusters: number; total_domains: number; cluster_ids: string[]; shared_pfam: string[]; }

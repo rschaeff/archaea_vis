@@ -47,6 +47,7 @@ export async function GET(
       existing.push({
         domain_id: hit.domain_id,
         pfam_acc: hit.pfam_acc,
+        pfam_name: hit.pfam_name ?? null,
         e_value: hit.e_value,
         bit_score: hit.bit_score,
         query_start: hit.query_start,

@@ -1,40 +1,56 @@
 'use client';
 
 /**
- * Curation Queue — filterable, sortable list of proteins pending curation.
+ * DXC Cluster Browser — filterable, sortable list of domain structural clusters.
  */
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Pagination from '@/components/Pagination';
-import { noveltyColor, statusColor } from '@/lib/utils';
+import type { DxcClusterRow } from '@/lib/types';
 
 const PAGE_SIZE = 50;
 
-const NOVELTY_OPTIONS = [
-  { value: 'all', label: 'All Novelty' },
-  { value: 'dark', label: 'Dark' },
-  { value: 'sequence-orphan', label: 'Sequence Orphan' },
-  { value: 'divergent', label: 'Divergent' },
-  { value: 'known', label: 'Known' },
+const XGROUP_OPTIONS = [
+  { value: '0', label: 'All X-groups' },
+  { value: '2', label: '2+ X-groups' },
+  { value: '3', label: '3+ X-groups' },
+  { value: '4', label: '4+ X-groups' },
 ];
 
-const STATUS_OPTIONS = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'all', label: 'All Status' },
-  { value: 'in_review', label: 'In Review' },
-  { value: 'classified', label: 'Classified' },
-  { value: 'deferred', label: 'Deferred' },
-  { value: 'rejected', label: 'Rejected' },
+const PFAM_OPTIONS = [
+  { value: 'all', label: 'All Pfam' },
+  { value: 'yes', label: 'Has Pfam' },
+  { value: 'no', label: 'No Pfam' },
 ];
 
 const SORT_OPTIONS = [
-  { value: 'priority_rank', label: 'Priority' },
-  { value: 'quality_score', label: 'Quality Score' },
-  { value: 'mean_plddt', label: 'pLDDT' },
-  { value: 'sequence_length', label: 'Length' },
+  { value: 'deep_homology_score', label: 'Deep Homology' },
+  { value: 'cluster_size', label: 'Cluster Size' },
+  { value: 'n_xgroups', label: 'X-groups' },
+  { value: 'n_tgroups', label: 'T-groups' },
+  { value: 'n_good_domain', label: 'Good Domains' },
+  { value: 'n_seq_clusters', label: 'Seq Clusters' },
+  { value: 'n_pfam_families', label: 'Pfam Families' },
+  { value: 'taxonomic_entropy', label: 'Taxonomic Entropy' },
+  { value: 'n_classes', label: 'Classes' },
 ];
+
+interface OverviewStats {
+  total_clusters: number;
+  multi_xgroup_good_domain: number;
+  reciprocal_bridges: number;
+  mean_deep_homology: number | null;
+}
+
+interface ClusterResponse {
+  overview: OverviewStats;
+  items: DxcClusterRow[];
+  total: number;
+  limit: number;
+  offset: number;
+}
 
 export default function CurationPage() {
   return (
@@ -47,83 +63,71 @@ export default function CurationPage() {
         </div>
       </div>
     }>
-      <CurationQueueContent />
+      <DxcBrowserContent />
     </Suspense>
   );
 }
 
-interface QueueItem {
-  id: number;
-  protein_id: string;
-  novelty_category: string;
-  priority_category: string;
-  priority_rank: number | null;
-  curation_status: string;
-  structural_cluster_id: number | null;
-  structural_cluster_size: number | null;
-  is_novel_fold: boolean | null;
-  uniprot_acc: string | null;
-  sequence_length: number;
-  source: string;
-  has_structure: boolean;
-  mean_plddt: number | null;
-  quality_score: number | null;
-  af3_quality_category: string | null;
-  phylum: string | null;
-}
-
-function CurationQueueContent() {
+function DxcBrowserContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [noveltyFilter, setNoveltyFilter] = useState(searchParams.get('novelty') || 'all');
-  const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'pending');
-  const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'priority_rank');
-  const [sortOrder, setSortOrder] = useState(searchParams.get('order') || 'ASC');
+  const [minXgroups, setMinXgroups] = useState(searchParams.get('min_xgroups') || '0');
+  const [minSize, setMinSize] = useState(searchParams.get('min_size') || '5');
+  const [minDeepHomology, setMinDeepHomology] = useState(searchParams.get('min_deep_homology') || '0');
+  const [minGoodDomain, setMinGoodDomain] = useState(searchParams.get('min_good_domain') || '0');
+  const [hasPfam, setHasPfam] = useState(searchParams.get('has_pfam') || 'all');
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'deep_homology_score');
+  const [sortOrder, setSortOrder] = useState(searchParams.get('order') || 'DESC');
   const [offset, setOffset] = useState(parseInt(searchParams.get('offset') || '0'));
 
-  const [data, setData] = useState<{ items: QueueItem[]; total: number; limit: number; offset: number } | null>(null);
+  const [data, setData] = useState<ClusterResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchQueue = useCallback(async () => {
+  const fetchClusters = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     const params = new URLSearchParams({
-      novelty: noveltyFilter,
-      status: statusFilter,
+      min_xgroups: minXgroups,
+      min_size: minSize,
+      min_deep_homology: minDeepHomology,
+      min_good_domain: minGoodDomain,
+      has_pfam: hasPfam,
       sort: sortBy,
       order: sortOrder,
       limit: String(PAGE_SIZE),
       offset: String(offset),
-      has_structure: 'true',
     });
 
     try {
-      const res = await fetch(`/api/curation/queue?${params}`);
-      if (!res.ok) throw new Error('Failed to fetch queue');
+      const res = await fetch(`/api/curation/clusters?${params}`);
+      if (!res.ok) throw new Error('Failed to fetch clusters');
       setData(await res.json());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load queue');
+      setError(err instanceof Error ? err.message : 'Failed to load clusters');
     } finally {
       setLoading(false);
     }
-  }, [noveltyFilter, statusFilter, sortBy, sortOrder, offset]);
+  }, [minXgroups, minSize, minDeepHomology, minGoodDomain, hasPfam, sortBy, sortOrder, offset]);
 
-  useEffect(() => { fetchQueue(); }, [fetchQueue]);
+  useEffect(() => { fetchClusters(); }, [fetchClusters]);
 
   // Update URL
   useEffect(() => {
     const params = new URLSearchParams();
-    if (noveltyFilter !== 'all') params.set('novelty', noveltyFilter);
-    if (statusFilter !== 'pending') params.set('status', statusFilter);
-    if (sortBy !== 'priority_rank') params.set('sort', sortBy);
-    if (sortOrder !== 'ASC') params.set('order', sortOrder);
+    if (minXgroups !== '0') params.set('min_xgroups', minXgroups);
+    if (minSize !== '5') params.set('min_size', minSize);
+    if (minDeepHomology !== '0') params.set('min_deep_homology', minDeepHomology);
+    if (minGoodDomain !== '0') params.set('min_good_domain', minGoodDomain);
+    if (hasPfam !== 'all') params.set('has_pfam', hasPfam);
+    if (sortBy !== 'deep_homology_score') params.set('sort', sortBy);
+    if (sortOrder !== 'DESC') params.set('order', sortOrder);
     if (offset > 0) params.set('offset', String(offset));
     const qs = params.toString();
     router.replace(`/curation${qs ? '?' + qs : ''}`, { scroll: false });
-  }, [noveltyFilter, statusFilter, sortBy, sortOrder, offset, router]);
+  }, [minXgroups, minSize, minDeepHomology, minGoodDomain, hasPfam, sortBy, sortOrder, offset, router]);
 
   const handleFilterChange = (setter: (v: string) => void, value: string) => {
     setter(value);
@@ -132,58 +136,84 @@ function CurationQueueContent() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Curation Queue</h1>
+          <h1 className="text-2xl font-bold text-gray-900">DXC Cluster Browser</h1>
           <p className="text-gray-600">
-            {data ? `${data.total.toLocaleString()} proteins` : 'Loading...'}
+            Domain structural clusters bridging ECOD X-groups and novel families
           </p>
         </div>
+        <Link
+          href="/curation/bridges"
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium"
+        >
+          Reciprocal Bridges
+        </Link>
       </div>
+
+      {/* Score definition */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mb-6 text-sm text-gray-600">
+        <span className="font-semibold text-gray-700">Deep Homology Score</span> (ad hoc) = H<sub>seq</sub> &times; H<sub>tax</sub>, where
+        H<sub>seq</sub> is Shannon entropy (log2) over sequence cluster membership counts and
+        H<sub>tax</sub> is Shannon entropy over organism class counts within the structural cluster.
+        This is a convenience ranking metric, not literature-derived. High values flag clusters with both high sequence diversity and broad taxonomic spread.
+      </div>
+
+      {/* Overview Stats */}
+      {data?.overview && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <StatCard label="Total Clusters" value={data.overview.total_clusters.toLocaleString()} />
+          <StatCard label="Multi-X-group (good domain)" value={data.overview.multi_xgroup_good_domain.toLocaleString()} />
+          <StatCard label="Reciprocal Bridges" value={String(data.overview.reciprocal_bridges)} />
+          <StatCard
+            label="Mean Deep Homology"
+            value={data.overview.mean_deep_homology != null ? data.overview.mean_deep_homology.toFixed(3) : '-'}
+          />
+        </div>
+      )}
 
       {/* Filters */}
       <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
-        <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-700">Novelty:</label>
-            <select
-              value={noveltyFilter}
-              onChange={e => handleFilterChange(setNoveltyFilter, e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
-            >
-              {NOVELTY_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+        <div className="flex flex-wrap gap-4 items-end">
+          <FilterSelect label="X-groups" value={minXgroups} options={XGROUP_OPTIONS}
+            onChange={v => handleFilterChange(setMinXgroups, v)} />
+
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-700">Min Size</label>
+            <input type="number" value={minSize} min={0}
+              onChange={e => handleFilterChange(setMinSize, e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-20" />
           </div>
 
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-700">Status:</label>
-            <select
-              value={statusFilter}
-              onChange={e => handleFilterChange(setStatusFilter, e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
-            >
-              {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-700">Min Deep Homology</label>
+            <input type="number" value={minDeepHomology} min={0} step={0.1}
+              onChange={e => handleFilterChange(setMinDeepHomology, e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-24" />
           </div>
 
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-700">Sort:</label>
-            <select
-              value={sortBy}
-              onChange={e => handleFilterChange(setSortBy, e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
-            >
-              {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <button
-              onClick={() => setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC')}
-              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
-            >
-              {sortOrder === 'ASC' ? '\u2191' : '\u2193'}
-            </button>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-gray-700">Min Good Domain</label>
+            <input type="number" value={minGoodDomain} min={0}
+              onChange={e => handleFilterChange(setMinGoodDomain, e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-20" />
           </div>
 
-          <button onClick={fetchQueue} className="ml-auto text-sm text-blue-600 hover:text-blue-800">
+          <FilterSelect label="Pfam" value={hasPfam} options={PFAM_OPTIONS}
+            onChange={v => handleFilterChange(setHasPfam, v)} />
+
+          <FilterSelect label="Sort" value={sortBy} options={SORT_OPTIONS}
+            onChange={v => handleFilterChange(setSortBy, v)} />
+
+          <button
+            onClick={() => setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC')}
+            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm hover:bg-gray-50"
+          >
+            {sortOrder === 'ASC' ? '\u2191 Asc' : '\u2193 Desc'}
+          </button>
+
+          <button onClick={fetchClusters} className="ml-auto text-sm text-blue-600 hover:text-blue-800">
             Refresh
           </button>
         </div>
@@ -195,75 +225,82 @@ function CurationQueueContent() {
         </div>
       )}
 
+      {/* Filtered count */}
+      {data && !loading && (
+        <p className="text-sm text-gray-500 mb-2">{data.total.toLocaleString()} clusters match filters</p>
+      )}
+
       {/* Table */}
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Protein</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Length</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Novelty</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Priority</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">pLDDT</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quality</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phylum</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cluster</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Size</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">X-groups</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">T-groups</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Dominant T-group</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Good Dom</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Seq Clust</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Classes</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Pfam</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Deep Homol.</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">View</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {loading ? (
                 Array.from({ length: 10 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    {Array.from({ length: 10 }).map((_, j) => (
+                    {Array.from({ length: 11 }).map((_, j) => (
                       <td key={j} className="px-3 py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
                     ))}
                   </tr>
                 ))
               ) : data?.items.length === 0 ? (
-                <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-500">No proteins found.</td></tr>
+                <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-500">No clusters match filters.</td></tr>
               ) : (
                 data?.items.map(item => (
-                  <tr key={item.protein_id} className="hover:bg-gray-50">
+                  <tr key={item.struct_cluster_id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 text-sm font-mono">
-                      <Link href={`/proteins/${item.protein_id}`} className="text-blue-600 hover:text-blue-800">
-                        {item.protein_id}
+                      <Link href={`/curation/cluster/${item.struct_cluster_id}`} className="text-blue-600 hover:text-blue-800">
+                        {item.struct_cluster_id}
                       </Link>
                     </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 text-right">{item.sequence_length}</td>
-                    <td className="px-3 py-2 text-sm">
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${noveltyColor(item.novelty_category)}`}>
-                        {item.novelty_category}
+                    <td className="px-3 py-2 text-sm text-right">{item.cluster_size}</td>
+                    <td className="px-3 py-2 text-sm text-right">
+                      <span className={item.n_xgroups >= 2 ? 'font-bold text-indigo-700' : ''}>
+                        {item.n_xgroups}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-sm">
-                      <PriorityBadge category={item.priority_category} rank={item.priority_rank} />
+                    <td className="px-3 py-2 text-sm text-right">{item.n_tgroups}</td>
+                    <td className="px-3 py-2 text-sm text-gray-600 max-w-[120px] truncate" title={item.dominant_tgroup || ''}>
+                      {item.dominant_tgroup || '-'}
+                      {item.dominant_tgroup_frac != null && (
+                        <span className="text-xs text-gray-400 ml-1">({(item.dominant_tgroup_frac * 100).toFixed(0)}%)</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-sm text-right">{item.n_good_domain}</td>
+                    <td className="px-3 py-2 text-sm text-right">{item.n_seq_clusters}</td>
+                    <td className="px-3 py-2 text-sm text-right">{item.n_classes}</td>
+                    <td className="px-3 py-2 text-sm text-right">
+                      {item.n_pfam_families > 0 ? (
+                        <span className="text-purple-700 font-medium">{item.n_pfam_families}</span>
+                      ) : (
+                        <span className="text-gray-400">0</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-sm text-right">
-                      {item.mean_plddt ? (
-                        <span className={item.mean_plddt >= 70 ? 'text-green-600' : item.mean_plddt >= 50 ? 'text-yellow-600' : 'text-red-600'}>
-                          {parseFloat(String(item.mean_plddt)).toFixed(1)}
+                      {item.deep_homology_score != null ? (
+                        <span className={item.deep_homology_score >= 1 ? 'font-bold text-red-700' : item.deep_homology_score >= 0.5 ? 'text-orange-600' : ''}>
+                          {item.deep_homology_score.toFixed(3)}
                         </span>
                       ) : '-'}
                     </td>
-                    <td className="px-3 py-2 text-sm text-gray-900 text-right">
-                      {item.quality_score ? parseFloat(String(item.quality_score)).toFixed(2) : '-'}
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-600 max-w-[100px] truncate">{item.phylum || '-'}</td>
-                    <td className="px-3 py-2 text-sm text-gray-600">{item.structural_cluster_size || '-'}</td>
-                    <td className="px-3 py-2 text-sm">
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded ${statusColor(item.curation_status)}`}>
-                        {item.curation_status}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-sm">
-                      <Link
-                        href={`/curation/review/${item.protein_id}`}
-                        className="text-blue-600 hover:text-blue-800 font-medium"
-                      >
-                        Review &rarr;
+                    <td className="px-3 py-2 text-sm text-center">
+                      <Link href={`/curation/cluster/${item.struct_cluster_id}`} className="text-blue-600 hover:text-blue-800">
+                        Detail &rarr;
                       </Link>
                     </td>
                   </tr>
@@ -283,20 +320,31 @@ function CurationQueueContent() {
   );
 }
 
-function PriorityBadge({ category, rank }: { category: string; rank: number | null }) {
-  const match = category.match(/priority_(\d+)/);
-  const priorityNum = match ? match[1] : '?';
-
-  const colors: Record<string, string> = {
-    '1': 'bg-red-100 text-red-800',
-    '2': 'bg-orange-100 text-orange-800',
-    '3': 'bg-yellow-100 text-yellow-800',
-    '4': 'bg-green-100 text-green-800',
-  };
-
+function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <span className={`px-2 py-0.5 text-xs font-mono font-medium rounded ${colors[priorityNum] || 'bg-gray-100 text-gray-800'}`}>
-      P{priorityNum}-{rank || '?'}
-    </span>
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function FilterSelect({ label, value, options, onChange }: {
+  label: string;
+  value: string;
+  options: { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="text-xs font-medium text-gray-700">{label}</label>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
+      >
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
   );
 }
