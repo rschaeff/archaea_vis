@@ -163,7 +163,7 @@ async function handleTier1(clusterId: string) {
 }
 
 async function handleTier2(clusterId: string) {
-  // Get members first to build domain ID list for edge query
+  // Get members with LDDT data joined
   const membersResult = await query(`
     SELECT
       ndc.protein_id,
@@ -175,8 +175,14 @@ async function handleTier2(clusterId: string) {
       ndc.mean_plddt,
       ndc.phylum,
       ndc.genome_accession,
-      ndc.cluster_size
+      ndc.cluster_size,
+      deh.best_lddt,
+      deh.ecod_xgroup AS lddt_xgroup,
+      deh.ecod_tgroup AS lddt_tgroup,
+      deh.lddt_class,
+      deh.ecod_domain_id AS lddt_ecod_domain
     FROM archaea.novel_domain_clusters ndc
+    LEFT JOIN archaea.domain_ecod_hits deh ON deh.domain_id = ndc.domain_id
     WHERE ndc.cluster_id = $1
     ORDER BY ndc.mean_plddt DESC
   `, [clusterId]);
@@ -208,6 +214,8 @@ async function handleTier2(clusterId: string) {
   let dpamCount = 0;
   let daliSum = 0;
   let daliCount = 0;
+  let lddtSum = 0;
+  let lddtCount = 0;
 
   for (const m of membersResult.rows) {
     if (m.phylum) phylumSet.add(m.phylum);
@@ -225,7 +233,17 @@ async function handleTier2(clusterId: string) {
       daliSum += parseFloat(String(m.dali_zscore));
       daliCount++;
     }
+    if (m.best_lddt != null) {
+      lddtSum += parseFloat(String(m.best_lddt));
+      lddtCount++;
+    }
   }
+
+  const avgLddt = lddtCount > 0 ? lddtSum / lddtCount : null;
+  const lddtClassification = avgLddt == null || avgLddt < 0.3 ? 'NOVEL'
+    : avgLddt < 0.5 ? 'WEAK_SIMILARITY'
+    : avgLddt < 0.7 ? 'MODERATE_SIMILARITY'
+    : 'ECOD_ASSIGNABLE';
 
   const cluster = {
     cluster_id: clusterId,
@@ -239,12 +257,14 @@ async function handleTier2(clusterId: string) {
     avg_dpam_prob: dpamCount > 0 ? dpamSum / dpamCount : null,
     avg_dali_zscore: daliCount > 0 ? daliSum / daliCount : null,
     phyla: Array.from(phylumSet).sort().join(', '),
+    avg_best_lddt: avgLddt,
+    lddt_classification: lddtCount > 0 ? lddtClassification : null,
   };
 
   // Build parameterized query for edge lookup
   const domainPlaceholders = domainIds.map((_, i) => `$${i + 1}`).join(', ');
 
-  const [edgesResult, phylumResult, crossTierResult] = await Promise.all([
+  const [edgesResult, phylumResult, crossTierResult, lddtDistResult, xgroupSuggestResult] = await Promise.all([
     domainIds.length > 0
       ? query(`
           SELECT
@@ -293,6 +313,38 @@ async function handleTier2(clusterId: string) {
           ORDER BY ct.alntmscore DESC
         `, proteinIds)
       : Promise.resolve({ rows: [] }),
+
+    // LDDT distribution: bucket counts for this cluster
+    query<{ bucket: string; count: string }>(`
+      SELECT
+        CASE
+          WHEN deh.best_lddt IS NULL THEN 'no_hit'
+          WHEN deh.best_lddt < 0.3 THEN '0.0-0.3'
+          WHEN deh.best_lddt < 0.5 THEN '0.3-0.5'
+          WHEN deh.best_lddt < 0.7 THEN '0.5-0.7'
+          ELSE '0.7+'
+        END AS bucket,
+        COUNT(*) AS count
+      FROM archaea.novel_domain_clusters ndc
+      LEFT JOIN archaea.domain_ecod_hits deh ON deh.domain_id = ndc.domain_id
+      WHERE ndc.cluster_id = $1
+      GROUP BY bucket
+    `, [clusterId]),
+
+    // X-group suggestions from LDDT hits
+    query<{ xgroup: string; n_hits: string; avg_lddt: string; max_lddt: string }>(`
+      SELECT
+        deh.ecod_xgroup AS xgroup,
+        COUNT(*) AS n_hits,
+        AVG(deh.best_lddt) AS avg_lddt,
+        MAX(deh.best_lddt) AS max_lddt
+      FROM archaea.novel_domain_clusters ndc
+      JOIN archaea.domain_ecod_hits deh ON deh.domain_id = ndc.domain_id
+      WHERE ndc.cluster_id = $1
+        AND deh.ecod_xgroup IS NOT NULL
+      GROUP BY deh.ecod_xgroup
+      ORDER BY n_hits DESC, avg_lddt DESC
+    `, [clusterId]),
   ]);
 
   return NextResponse.json({
@@ -303,6 +355,7 @@ async function handleTier2(clusterId: string) {
       mean_plddt: m.mean_plddt ? parseFloat(String(m.mean_plddt)) : null,
       dpam_prob: m.dpam_prob ? parseFloat(String(m.dpam_prob)) : null,
       dali_zscore: m.dali_zscore ? parseFloat(String(m.dali_zscore)) : null,
+      best_lddt: m.best_lddt ? parseFloat(String(m.best_lddt)) : null,
     })),
     edges: edgesResult.rows.map(e => ({
       ...e,
@@ -321,6 +374,16 @@ async function handleTier2(clusterId: string) {
       fident: r.fident ? parseFloat(String(r.fident)) : null,
       evalue: r.evalue ? parseFloat(String(r.evalue)) : null,
       alntmscore: r.alntmscore ? parseFloat(String(r.alntmscore)) : null,
+    })),
+    lddt_distribution: lddtDistResult.rows.map(r => ({
+      bucket: r.bucket,
+      count: parseInt(r.count),
+    })),
+    xgroup_suggestions: xgroupSuggestResult.rows.map(r => ({
+      xgroup: r.xgroup,
+      n_hits: parseInt(r.n_hits),
+      avg_lddt: parseFloat(r.avg_lddt),
+      max_lddt: parseFloat(r.max_lddt),
     })),
   });
 }

@@ -10,6 +10,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import ProgressBar from '@/components/ProgressBar';
+import { lddtClassColor, lddtClassLabel } from '@/lib/utils';
 
 // Tier 1 types
 interface Tier1Cluster {
@@ -59,6 +60,8 @@ interface Tier2Cluster {
   avg_dpam_prob: number | null;
   avg_dali_zscore: number | null;
   phyla: string;
+  avg_best_lddt: number | null;
+  lddt_classification: string | null;
 }
 
 interface Tier2Member {
@@ -71,6 +74,11 @@ interface Tier2Member {
   mean_plddt: number | null;
   phylum: string;
   genome_accession: string;
+  best_lddt: number | null;
+  lddt_xgroup: string | null;
+  lddt_tgroup: string | null;
+  lddt_class: string | null;
+  lddt_ecod_domain: string | null;
 }
 
 interface Tier2Edge {
@@ -105,6 +113,18 @@ interface CrossTierHit {
   alntmscore: number | null;
 }
 
+interface LddtBucket {
+  bucket: string;
+  count: number;
+}
+
+interface XgroupSuggestion {
+  xgroup: string;
+  n_hits: number;
+  avg_lddt: number;
+  max_lddt: number;
+}
+
 interface DetailData {
   tier: number;
   cluster: Tier1Cluster | Tier2Cluster;
@@ -112,6 +132,8 @@ interface DetailData {
   edges: (Tier1Edge | Tier2Edge)[];
   phylum_distribution: PhylumDist[];
   cross_tier_hits: CrossTierHit[];
+  lddt_distribution?: LddtBucket[];
+  xgroup_suggestions?: XgroupSuggestion[];
 }
 
 export default function NovelFoldDetailPage() {
@@ -159,7 +181,7 @@ export default function NovelFoldDetailPage() {
     );
   }
 
-  const { tier, cluster, members, edges, phylum_distribution, cross_tier_hits } = data;
+  const { tier, cluster, members, edges, phylum_distribution, cross_tier_hits, lddt_distribution, xgroup_suggestions } = data;
   const isTier1 = tier === 1;
 
   return (
@@ -176,6 +198,14 @@ export default function NovelFoldDetailPage() {
             }`}>
               {isTier1 ? 'Tier 1: Dark Protein' : 'Tier 2: Orphan Domain'}
             </span>
+            {!isTier1 && (cluster as Tier2Cluster).lddt_classification && (
+              <span className={`px-2.5 py-1 rounded text-xs font-semibold ${lddtClassColor((cluster as Tier2Cluster).lddt_classification)}`}>
+                LDDT: {lddtClassLabel((cluster as Tier2Cluster).lddt_classification)}
+                {(cluster as Tier2Cluster).avg_best_lddt != null && (
+                  <span className="ml-1 opacity-75">({((cluster as Tier2Cluster).avg_best_lddt!).toFixed(3)})</span>
+                )}
+              </span>
+            )}
           </div>
           <p className="text-sm text-gray-500 mt-1">
             {isTier1
@@ -200,7 +230,7 @@ export default function NovelFoldDetailPage() {
       </div>
 
       {/* Summary cards */}
-      <div className={`grid grid-cols-2 ${isTier1 ? 'md:grid-cols-4' : 'md:grid-cols-6'} gap-4 mb-6`}>
+      <div className={`grid grid-cols-2 ${isTier1 ? 'md:grid-cols-4' : 'md:grid-cols-7'} gap-4 mb-6`}>
         <Card label={isTier1 ? 'Proteins' : 'Domains'} value={String(cluster.cluster_size)} />
         <Card label="Avg pLDDT" value={cluster.avg_plddt?.toFixed(1) || '-'} />
         <Card label="Phyla" value={String(cluster.phylum_count)} />
@@ -209,6 +239,7 @@ export default function NovelFoldDetailPage() {
           <>
             <Card label="Avg DPAM Prob" value={(cluster as Tier2Cluster).avg_dpam_prob?.toFixed(3) || '-'} />
             <Card label="Avg DALI Z" value={(cluster as Tier2Cluster).avg_dali_zscore?.toFixed(1) || '-'} />
+            <Card label="Avg LDDT" value={(cluster as Tier2Cluster).avg_best_lddt?.toFixed(3) || '-'} />
           </>
         )}
       </div>
@@ -250,6 +281,65 @@ export default function NovelFoldDetailPage() {
           </div>
         )}
       </div>
+
+      {/* LDDT Distribution + X-group Suggestions (Tier 2 only) */}
+      {!isTier1 && (lddt_distribution || xgroup_suggestions) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {lddt_distribution && lddt_distribution.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <h3 className="font-semibold text-gray-900 mb-3">LDDT Distribution (vs ECOD)</h3>
+              <LddtStackedBar buckets={lddt_distribution} total={members.length} />
+              <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-500">
+                <span><span className="inline-block w-3 h-3 rounded bg-gray-300 mr-1"></span>No hit</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-purple-500 mr-1"></span>Novel (&lt;0.3)</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-orange-500 mr-1"></span>Weak (0.3-0.5)</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-yellow-500 mr-1"></span>Moderate (0.5-0.7)</span>
+                <span><span className="inline-block w-3 h-3 rounded bg-green-500 mr-1"></span>Strong (0.7+)</span>
+              </div>
+            </div>
+          )}
+
+          {xgroup_suggestions && xgroup_suggestions.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <h3 className="font-semibold text-gray-900 mb-3">X-group Suggestions (LDDT)</h3>
+              <p className="text-xs text-gray-500 mb-2">
+                ECOD X-groups suggested by structural similarity of orphan domains
+              </p>
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead>
+                  <tr>
+                    <th className="text-left text-xs font-medium text-gray-500 py-1">X-group</th>
+                    <th className="text-right text-xs font-medium text-gray-500 py-1">Hits</th>
+                    <th className="text-right text-xs font-medium text-gray-500 py-1">Avg LDDT</th>
+                    <th className="text-right text-xs font-medium text-gray-500 py-1">Max LDDT</th>
+                    <th className="text-left text-xs font-medium text-gray-500 py-1 pl-2">Conf.</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {xgroup_suggestions.map(s => {
+                    const conf = s.avg_lddt >= 0.7 && s.n_hits >= 3 ? 'HIGH'
+                      : s.avg_lddt >= 0.5 ? 'MODERATE' : 'LOW';
+                    const confColor = conf === 'HIGH' ? 'bg-green-100 text-green-800'
+                      : conf === 'MODERATE' ? 'bg-yellow-100 text-yellow-800'
+                      : 'bg-gray-100 text-gray-600';
+                    return (
+                      <tr key={s.xgroup}>
+                        <td className="py-1 font-mono text-xs">{s.xgroup}</td>
+                        <td className="py-1 text-right">{s.n_hits}</td>
+                        <td className="py-1 text-right">{s.avg_lddt.toFixed(3)}</td>
+                        <td className="py-1 text-right">{s.max_lddt.toFixed(3)}</td>
+                        <td className="py-1 pl-2">
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${confColor}`}>{conf}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Members Table */}
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
@@ -298,6 +388,8 @@ export default function NovelFoldDetailPage() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">pLDDT</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">DPAM Prob</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">DALI Z</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">LDDT</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">LDDT X-group</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phylum</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Genome</th>
                 </tr>
@@ -315,6 +407,18 @@ export default function NovelFoldDetailPage() {
                     <td className="px-3 py-2 text-sm text-right">{m.mean_plddt?.toFixed(1) || '-'}</td>
                     <td className="px-3 py-2 text-sm text-right">{m.dpam_prob?.toFixed(3) || '-'}</td>
                     <td className="px-3 py-2 text-sm text-right">{m.dali_zscore?.toFixed(1) || '-'}</td>
+                    <td className="px-3 py-2 text-sm">
+                      {m.best_lddt != null ? (
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${lddtClassColor(m.lddt_class)}`}>
+                          {m.best_lddt.toFixed(3)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-sm text-gray-600 font-mono text-xs">
+                      {m.lddt_xgroup || '-'}
+                    </td>
                     <td className="px-3 py-2 text-sm text-gray-600">{m.phylum}</td>
                     <td className="px-3 py-2 text-sm text-gray-600 font-mono text-xs">{m.genome_accession}</td>
                   </tr>
@@ -485,6 +589,64 @@ function Card({ label, value }: { label: string; value: string }) {
     <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
       <div className="text-xl font-bold text-gray-900">{value}</div>
       <div className="text-xs text-gray-500">{label}</div>
+    </div>
+  );
+}
+
+const BUCKET_COLORS: Record<string, string> = {
+  'no_hit': 'bg-gray-300',
+  '0.0-0.3': 'bg-purple-500',
+  '0.3-0.5': 'bg-orange-500',
+  '0.5-0.7': 'bg-yellow-500',
+  '0.7+': 'bg-green-500',
+};
+
+const BUCKET_LABELS: Record<string, string> = {
+  'no_hit': 'No hit',
+  '0.0-0.3': 'Novel (<0.3)',
+  '0.3-0.5': 'Weak (0.3-0.5)',
+  '0.5-0.7': 'Moderate (0.5-0.7)',
+  '0.7+': 'Strong (0.7+)',
+};
+
+const BUCKET_ORDER = ['no_hit', '0.0-0.3', '0.3-0.5', '0.5-0.7', '0.7+'];
+
+function LddtStackedBar({ buckets, total }: { buckets: LddtBucket[]; total: number }) {
+  const bucketMap = new Map(buckets.map(b => [b.bucket, b.count]));
+  const actualTotal = buckets.reduce((s, b) => s + b.count, 0) || total;
+
+  return (
+    <div>
+      <div className="flex h-8 rounded overflow-hidden">
+        {BUCKET_ORDER.map(key => {
+          const count = bucketMap.get(key) || 0;
+          if (count === 0) return null;
+          const pct = (count / actualTotal) * 100;
+          return (
+            <div
+              key={key}
+              className={`${BUCKET_COLORS[key]} relative group`}
+              style={{ width: `${pct}%` }}
+              title={`${BUCKET_LABELS[key]}: ${count} (${pct.toFixed(1)}%)`}
+            >
+              {pct > 8 && (
+                <span className="absolute inset-0 flex items-center justify-center text-white text-xs font-medium">
+                  {count}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-4 mt-2 text-xs text-gray-600">
+        {BUCKET_ORDER.map(key => {
+          const count = bucketMap.get(key) || 0;
+          if (count === 0) return null;
+          return (
+            <span key={key}>{BUCKET_LABELS[key]}: {count}</span>
+          );
+        })}
+      </div>
     </div>
   );
 }

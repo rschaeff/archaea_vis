@@ -27,6 +27,7 @@ const TIER2_SORT_COLUMNS = [
   'cluster_id',
   'genome_count',
   'protein_count',
+  'avg_best_lddt',
 ];
 
 export async function GET(request: NextRequest) {
@@ -54,9 +55,10 @@ export async function GET(request: NextRequest) {
     const minSize = parseInt(searchParams.get('min_size') || '1');
     const crossPhylum = searchParams.get('cross_phylum');
     const phylum = searchParams.get('phylum');
+    const lddtClass = searchParams.get('lddt_class');
 
     // Overview stats — always fetched for both tiers
-    const [tier1Summary, tier2Summary, crossTierCount, tier2CrossPhylum5Plus] = await Promise.all([
+    const [tier1Summary, tier2Summary, crossTierCount, tier2CrossPhylum5Plus, tier2LddtCounts] = await Promise.all([
       query<{
         clusters: string;
         proteins: string;
@@ -97,7 +99,31 @@ export async function GET(request: NextRequest) {
           HAVING COUNT(DISTINCT phylum) >= 5
         ) sub
       `),
+
+      // LDDT tier counts for Tier 2 clusters (aggregate per cluster → classify)
+      query<{ lddt_class: string; count: string }>(`
+        SELECT lddt_class, COUNT(*) AS count FROM (
+          SELECT
+            ndc.cluster_id,
+            CASE
+              WHEN AVG(deh.best_lddt) IS NULL OR AVG(deh.best_lddt) < 0.3 THEN 'NOVEL'
+              WHEN AVG(deh.best_lddt) < 0.5 THEN 'WEAK_SIMILARITY'
+              WHEN AVG(deh.best_lddt) < 0.7 THEN 'MODERATE_SIMILARITY'
+              ELSE 'ECOD_ASSIGNABLE'
+            END AS lddt_class
+          FROM archaea.novel_domain_clusters ndc
+          LEFT JOIN archaea.domain_ecod_hits deh ON deh.domain_id = ndc.domain_id
+          GROUP BY ndc.cluster_id
+        ) sub
+        GROUP BY lddt_class
+        ORDER BY lddt_class
+      `),
     ]);
+
+    const lddtTierCounts: Record<string, number> = {};
+    for (const r of tier2LddtCounts.rows) {
+      lddtTierCounts[r.lddt_class] = parseInt(r.count);
+    }
 
     const overview = {
       tier1: {
@@ -112,6 +138,7 @@ export async function GET(request: NextRequest) {
         proteins: parseInt(tier2Summary.rows[0]?.proteins || '0'),
         multi_member: parseInt(tier2Summary.rows[0]?.multi_member || '0'),
         cross_phylum_5plus: parseInt(tier2CrossPhylum5Plus.rows[0]?.count || '0'),
+        lddt_tier_counts: lddtTierCounts,
       },
       cross_tier_hits: parseInt(crossTierCount.rows[0]?.count || '0'),
     };
@@ -168,7 +195,7 @@ export async function GET(request: NextRequest) {
         offset,
       });
     } else {
-      // Tier 2: Inline aggregation from novel_domain_clusters
+      // Tier 2: Inline aggregation from novel_domain_clusters with LDDT data
       const conditions: string[] = [];
       const params: (string | number)[] = [];
       let paramIdx = 1;
@@ -178,8 +205,6 @@ export async function GET(request: NextRequest) {
         params.push(minSize);
       }
       if (phylum) {
-        // Filter on the HAVING clause won't work directly, so use a subquery approach
-        // We filter clusters that have the specified phylum among their members
         conditions.push(`ndc.cluster_id IN (
           SELECT cluster_id FROM archaea.novel_domain_clusters
           WHERE phylum ILIKE $${paramIdx++}
@@ -192,6 +217,17 @@ export async function GET(request: NextRequest) {
         havingConditions.push(`COUNT(DISTINCT ndc.phylum) > 1`);
       } else if (crossPhylum === 'false') {
         havingConditions.push(`COUNT(DISTINCT ndc.phylum) = 1`);
+      }
+      if (lddtClass && lddtClass !== 'all') {
+        // Filter by LDDT tier using HAVING on the aggregate
+        const lddtCondition = lddtClass === 'NOVEL'
+          ? `(AVG(deh.best_lddt) IS NULL OR AVG(deh.best_lddt) < 0.3)`
+          : lddtClass === 'WEAK_SIMILARITY'
+          ? `(AVG(deh.best_lddt) >= 0.3 AND AVG(deh.best_lddt) < 0.5)`
+          : lddtClass === 'MODERATE_SIMILARITY'
+          ? `(AVG(deh.best_lddt) >= 0.5 AND AVG(deh.best_lddt) < 0.7)`
+          : `(AVG(deh.best_lddt) >= 0.7)`;
+        havingConditions.push(lddtCondition);
       }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -210,8 +246,17 @@ export async function GET(request: NextRequest) {
           COUNT(DISTINCT ndc.phylum) AS phylum_count,
           STRING_AGG(DISTINCT ndc.phylum, ', ' ORDER BY ndc.phylum) AS phyla,
           COUNT(DISTINCT ndc.genome_accession) AS genome_count,
-          COUNT(DISTINCT ndc.protein_id) AS protein_count
+          COUNT(DISTINCT ndc.protein_id) AS protein_count,
+          AVG(deh.best_lddt) AS avg_best_lddt,
+          MAX(deh.best_lddt) AS max_best_lddt,
+          CASE
+            WHEN AVG(deh.best_lddt) IS NULL OR AVG(deh.best_lddt) < 0.3 THEN 'NOVEL'
+            WHEN AVG(deh.best_lddt) < 0.5 THEN 'WEAK_SIMILARITY'
+            WHEN AVG(deh.best_lddt) < 0.7 THEN 'MODERATE_SIMILARITY'
+            ELSE 'ECOD_ASSIGNABLE'
+          END AS lddt_classification
         FROM archaea.novel_domain_clusters ndc
+        LEFT JOIN archaea.domain_ecod_hits deh ON deh.domain_id = ndc.domain_id
         ${whereClause}
         GROUP BY ndc.cluster_id, ndc.cluster_size
         ${havingClause}
@@ -239,6 +284,8 @@ export async function GET(request: NextRequest) {
           min_plddt: c.min_plddt ? parseFloat(String(c.min_plddt)) : null,
           max_plddt: c.max_plddt ? parseFloat(String(c.max_plddt)) : null,
           avg_dpam_prob: c.avg_dpam_prob ? parseFloat(String(c.avg_dpam_prob)) : null,
+          avg_best_lddt: c.avg_best_lddt ? parseFloat(String(c.avg_best_lddt)) : null,
+          max_best_lddt: c.max_best_lddt ? parseFloat(String(c.max_best_lddt)) : null,
         })),
         total: parseInt(countResult.rows[0]?.total || '0'),
         limit,

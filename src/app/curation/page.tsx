@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Pagination from '@/components/Pagination';
+import { lddtClassColor, lddtClassLabel } from '@/lib/utils';
 import type { DxcClusterRow } from '@/lib/types';
 
 const PAGE_SIZE = 50;
@@ -25,6 +26,14 @@ const PFAM_OPTIONS = [
   { value: 'no', label: 'No Pfam' },
 ];
 
+const LDDT_OPTIONS = [
+  { value: 'all', label: 'All LDDT' },
+  { value: 'NOVEL', label: 'Novel' },
+  { value: 'WEAK_SIMILARITY', label: 'Weak Similarity' },
+  { value: 'MODERATE_SIMILARITY', label: 'Moderate Similarity' },
+  { value: 'ECOD_ASSIGNABLE', label: 'Strong Similarity' },
+];
+
 const SORT_OPTIONS = [
   { value: 'deep_homology_score', label: 'Deep Homology' },
   { value: 'cluster_size', label: 'Cluster Size' },
@@ -35,6 +44,8 @@ const SORT_OPTIONS = [
   { value: 'n_pfam_families', label: 'Pfam Families' },
   { value: 'taxonomic_entropy', label: 'Taxonomic Entropy' },
   { value: 'n_classes', label: 'Classes' },
+  { value: 'avg_best_lddt', label: 'Avg LDDT' },
+  { value: 'lddt_classification', label: 'LDDT Tier' },
 ];
 
 interface OverviewStats {
@@ -42,6 +53,7 @@ interface OverviewStats {
   multi_xgroup_good_domain: number;
   reciprocal_bridges: number;
   mean_deep_homology: number | null;
+  lddt_tier_counts: Record<string, number>;
 }
 
 interface ClusterResponse {
@@ -77,6 +89,7 @@ function DxcBrowserContent() {
   const [minDeepHomology, setMinDeepHomology] = useState(searchParams.get('min_deep_homology') || '0');
   const [minGoodDomain, setMinGoodDomain] = useState(searchParams.get('min_good_domain') || '0');
   const [hasPfam, setHasPfam] = useState(searchParams.get('has_pfam') || 'all');
+  const [lddtClass, setLddtClass] = useState(searchParams.get('lddt_class') || 'all');
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'deep_homology_score');
   const [sortOrder, setSortOrder] = useState(searchParams.get('order') || 'DESC');
   const [offset, setOffset] = useState(parseInt(searchParams.get('offset') || '0'));
@@ -95,6 +108,7 @@ function DxcBrowserContent() {
       min_deep_homology: minDeepHomology,
       min_good_domain: minGoodDomain,
       has_pfam: hasPfam,
+      lddt_class: lddtClass,
       sort: sortBy,
       order: sortOrder,
       limit: String(PAGE_SIZE),
@@ -110,7 +124,7 @@ function DxcBrowserContent() {
     } finally {
       setLoading(false);
     }
-  }, [minXgroups, minSize, minDeepHomology, minGoodDomain, hasPfam, sortBy, sortOrder, offset]);
+  }, [minXgroups, minSize, minDeepHomology, minGoodDomain, hasPfam, lddtClass, sortBy, sortOrder, offset]);
 
   useEffect(() => { fetchClusters(); }, [fetchClusters]);
 
@@ -122,12 +136,13 @@ function DxcBrowserContent() {
     if (minDeepHomology !== '0') params.set('min_deep_homology', minDeepHomology);
     if (minGoodDomain !== '0') params.set('min_good_domain', minGoodDomain);
     if (hasPfam !== 'all') params.set('has_pfam', hasPfam);
+    if (lddtClass !== 'all') params.set('lddt_class', lddtClass);
     if (sortBy !== 'deep_homology_score') params.set('sort', sortBy);
     if (sortOrder !== 'DESC') params.set('order', sortOrder);
     if (offset > 0) params.set('offset', String(offset));
     const qs = params.toString();
     router.replace(`/curation${qs ? '?' + qs : ''}`, { scroll: false });
-  }, [minXgroups, minSize, minDeepHomology, minGoodDomain, hasPfam, sortBy, sortOrder, offset, router]);
+  }, [minXgroups, minSize, minDeepHomology, minGoodDomain, hasPfam, lddtClass, sortBy, sortOrder, offset, router]);
 
   const handleFilterChange = (setter: (v: string) => void, value: string) => {
     setter(value);
@@ -152,12 +167,21 @@ function DxcBrowserContent() {
         </Link>
       </div>
 
-      {/* Score definition */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mb-6 text-sm text-gray-600">
-        <span className="font-semibold text-gray-700">Deep Homology Score</span> (ad hoc) = H<sub>seq</sub> &times; H<sub>tax</sub>, where
-        H<sub>seq</sub> is Shannon entropy (log2) over sequence cluster membership counts and
-        H<sub>tax</sub> is Shannon entropy over organism class counts within the structural cluster.
-        This is a convenience ranking metric, not literature-derived. High values flag clusters with both high sequence diversity and broad taxonomic spread.
+      {/* Score definitions */}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 mb-6 text-sm text-gray-600 space-y-2">
+        <p>
+          <span className="font-semibold text-gray-700">Deep Homology Score</span> (ad hoc) = H<sub>seq</sub> &times; H<sub>tax</sub>, where
+          H<sub>seq</sub> is Shannon entropy (log2) over sequence cluster membership counts and
+          H<sub>tax</sub> is Shannon entropy over organism class counts within the structural cluster.
+          This is a convenience ranking metric, not literature-derived. High values flag clusters with both high sequence diversity and broad taxonomic spread.
+        </p>
+        <p>
+          <span className="font-semibold text-gray-700">LDDT Classification</span> assigns each cluster a tier based on foldseek structural similarity (avg best LDDT) to ECOD representatives:
+          {' '}<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">Novel</span> (&lt;0.3)
+          {' '}<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">Weak</span> (0.3&ndash;0.5)
+          {' '}<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Moderate</span> (0.5&ndash;0.7)
+          {' '}<span className="px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Strong</span> (&ge;0.7).
+        </p>
       </div>
 
       {/* Overview Stats */}
@@ -170,6 +194,14 @@ function DxcBrowserContent() {
             label="Mean Deep Homology"
             value={data.overview.mean_deep_homology != null ? data.overview.mean_deep_homology.toFixed(3) : '-'}
           />
+          {data.overview.lddt_tier_counts && Object.keys(data.overview.lddt_tier_counts).length > 0 && (
+            <>
+              <TierStatCard label="Novel" count={data.overview.lddt_tier_counts['NOVEL'] || 0} colorClass="text-purple-700" />
+              <TierStatCard label="Weak Similarity" count={data.overview.lddt_tier_counts['WEAK_SIMILARITY'] || 0} colorClass="text-orange-700" />
+              <TierStatCard label="Moderate" count={data.overview.lddt_tier_counts['MODERATE_SIMILARITY'] || 0} colorClass="text-yellow-700" />
+              <TierStatCard label="Strong" count={data.overview.lddt_tier_counts['ECOD_ASSIGNABLE'] || 0} colorClass="text-green-700" />
+            </>
+          )}
         </div>
       )}
 
@@ -202,6 +234,9 @@ function DxcBrowserContent() {
 
           <FilterSelect label="Pfam" value={hasPfam} options={PFAM_OPTIONS}
             onChange={v => handleFilterChange(setHasPfam, v)} />
+
+          <FilterSelect label="LDDT Tier" value={lddtClass} options={LDDT_OPTIONS}
+            onChange={v => handleFilterChange(setLddtClass, v)} />
 
           <FilterSelect label="Sort" value={sortBy} options={SORT_OPTIONS}
             onChange={v => handleFilterChange(setSortBy, v)} />
@@ -246,6 +281,7 @@ function DxcBrowserContent() {
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Classes</th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Pfam</th>
                 <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Deep Homol.</th>
+                <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">LDDT Tier</th>
                 <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">View</th>
               </tr>
             </thead>
@@ -253,13 +289,13 @@ function DxcBrowserContent() {
               {loading ? (
                 Array.from({ length: 10 }).map((_, i) => (
                   <tr key={i} className="animate-pulse">
-                    {Array.from({ length: 11 }).map((_, j) => (
+                    {Array.from({ length: 12 }).map((_, j) => (
                       <td key={j} className="px-3 py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
                     ))}
                   </tr>
                 ))
               ) : data?.items.length === 0 ? (
-                <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-500">No clusters match filters.</td></tr>
+                <tr><td colSpan={12} className="px-3 py-8 text-center text-gray-500">No clusters match filters.</td></tr>
               ) : (
                 data?.items.map(item => (
                   <tr key={item.struct_cluster_id} className="hover:bg-gray-50">
@@ -299,6 +335,15 @@ function DxcBrowserContent() {
                       ) : '-'}
                     </td>
                     <td className="px-3 py-2 text-sm text-center">
+                      {item.lddt_classification ? (
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded ${lddtClassColor(item.lddt_classification)}`}>
+                          {lddtClassLabel(item.lddt_classification)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-sm text-center">
                       <Link href={`/curation/cluster/${item.struct_cluster_id}`} className="text-blue-600 hover:text-blue-800">
                         Detail &rarr;
                       </Link>
@@ -325,6 +370,15 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <div className="bg-white border border-gray-200 rounded-lg p-4">
       <p className="text-sm text-gray-500">{label}</p>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
+    </div>
+  );
+}
+
+function TierStatCard({ label, count, colorClass }: { label: string; count: number; colorClass: string }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className={`text-2xl font-bold ${colorClass}`}>{count.toLocaleString()}</p>
     </div>
   );
 }

@@ -1,12 +1,12 @@
 /**
  * GET /api/curation/clusters/[id]
  *
- * DXC cluster detail: metadata, X-group composition, members, Pfam evidence, taxonomy.
+ * DXC cluster detail: metadata, X-group composition, members, Pfam evidence,
+ * taxonomy, LDDT distribution, and X-group suggestions.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { parsePagination } from '@/lib/utils';
 import type { DxcPfamEvidence } from '@/lib/types';
 
 export async function GET(
@@ -24,7 +24,7 @@ export async function GET(
     const memberLimit = Math.min(Math.max(1, parseInt(searchParams.get('member_limit') || '50')), 500);
     const memberOffset = Math.max(0, parseInt(searchParams.get('member_offset') || '0'));
 
-    const [metaRes, xgroupRes, membersRes, memberCountRes, pfamRawRes, taxonRes] = await Promise.all([
+    const [metaRes, xgroupRes, membersRes, memberCountRes, pfamRawRes, taxonRes, lddtDistRes, xgroupSugRes] = await Promise.all([
       // A. Cluster metadata
       query(
         "SELECT * FROM archaea.struct_cluster_diversity WHERE level='domain' AND struct_cluster_id=$1",
@@ -50,7 +50,7 @@ export async function GET(
          GROUP BY SPLIT_PART(d.t_group,'.',1) ORDER BY COUNT(DISTINCT d.id) DESC`,
         [id]
       ),
-      // C. Members (paginated, best Pfam hit per domain)
+      // C. Members (paginated, best Pfam hit per domain, with LDDT data)
       query(
         `WITH best_pfam AS (
            SELECT DISTINCT ON (domain_id) domain_id, pfam_acc
@@ -58,12 +58,14 @@ export async function GET(
            ORDER BY domain_id, domain_ievalue ASC
          )
          SELECT d.id AS domain_id, d.protein_id, d.domain_num, d.range, d.judge, d.t_group, d.dpam_prob,
-                bp.pfam_acc AS pfam_hits, tc.class_name, tc.phylum
+                bp.pfam_acc AS pfam_hits, tc.class_name, tc.phylum,
+                deh.best_lddt, deh.ecod_xgroup AS lddt_xgroup, deh.lddt_class
          FROM archaea.domain_struct_clusters dsc
          JOIN archaea.domains d ON d.id = dsc.domain_id
          LEFT JOIN archaea.target_proteins tp ON tp.protein_id = d.protein_id
          LEFT JOIN archaea.target_classes tc ON tc.id = tp.target_class_id
          LEFT JOIN best_pfam bp ON bp.domain_id = d.id
+         LEFT JOIN archaea.domain_ecod_hits deh ON deh.domain_id = d.id
          WHERE dsc.cluster_id=$1
          ORDER BY d.judge DESC, d.dpam_prob DESC NULLS LAST
          LIMIT $2 OFFSET $3`,
@@ -101,6 +103,39 @@ export async function GET(
          WHERE dsc.cluster_id=$1 GROUP BY tc.class_name, tc.phylum ORDER BY count DESC`,
         [id]
       ),
+      // F. LDDT distribution
+      query(
+        `SELECT
+           CASE
+             WHEN deh.best_lddt IS NULL THEN 'no_hit'
+             WHEN deh.best_lddt < 0.3 THEN '0.0-0.3'
+             WHEN deh.best_lddt < 0.5 THEN '0.3-0.5'
+             WHEN deh.best_lddt < 0.7 THEN '0.5-0.7'
+             ELSE '0.7+'
+           END AS bucket,
+           COUNT(*) AS count
+         FROM archaea.domain_struct_clusters dsc
+         LEFT JOIN archaea.domain_ecod_hits deh ON deh.domain_id = dsc.domain_id
+         WHERE dsc.cluster_id = $1
+         GROUP BY bucket`,
+        [id]
+      ),
+      // G. X-group suggestions (unclassified members only)
+      query(
+        `SELECT deh.ecod_xgroup AS xgroup,
+                COUNT(*) AS n_hits,
+                AVG(deh.best_lddt) AS avg_lddt,
+                MAX(deh.best_lddt) AS max_lddt
+         FROM archaea.domain_struct_clusters dsc
+         JOIN archaea.domains d ON d.id = dsc.domain_id
+         JOIN archaea.domain_ecod_hits deh ON deh.domain_id = d.id
+         WHERE dsc.cluster_id = $1
+           AND (d.judge != 'good_domain' OR d.t_group IS NULL)
+           AND deh.ecod_xgroup IS NOT NULL
+         GROUP BY deh.ecod_xgroup
+         ORDER BY n_hits DESC, avg_lddt DESC`,
+        [id]
+      ),
     ]);
 
     if (metaRes.rows.length === 0) {
@@ -128,6 +163,8 @@ export async function GET(
       n_low_confidence: parseInt(meta.n_low_confidence || '0'),
       n_with_pfam: parseInt(meta.n_with_pfam || '0'),
       annotation_transfer_potential: meta.annotation_transfer_potential != null ? parseFloat(meta.annotation_transfer_potential) : null,
+      avg_best_lddt: meta.avg_best_lddt != null ? parseFloat(meta.avg_best_lddt) : null,
+      lddt_classification: meta.lddt_classification || null,
     };
 
     // Pivot Pfam evidence rows into DxcPfamEvidence[]
@@ -161,6 +198,9 @@ export async function GET(
         ...r,
         domain_id: parseInt(r.domain_id),
         dpam_prob: r.dpam_prob != null ? parseFloat(r.dpam_prob) : null,
+        best_lddt: r.best_lddt != null ? parseFloat(r.best_lddt) : null,
+        lddt_xgroup: r.lddt_xgroup || null,
+        lddt_class: r.lddt_class || null,
       })),
       members_total: parseInt(memberCountRes.rows[0]?.count || '0'),
       pfam_evidence: Array.from(pfamMap.values()),
@@ -168,6 +208,16 @@ export async function GET(
         class_name: r.class_name,
         phylum: r.phylum,
         count: parseInt(r.count),
+      })),
+      lddt_distribution: lddtDistRes.rows.map(r => ({
+        bucket: r.bucket,
+        count: parseInt(r.count),
+      })),
+      xgroup_suggestions: xgroupSugRes.rows.map(r => ({
+        xgroup: r.xgroup,
+        n_hits: parseInt(r.n_hits),
+        avg_lddt: parseFloat(r.avg_lddt),
+        max_lddt: parseFloat(r.max_lddt),
       })),
     });
   } catch (error) {

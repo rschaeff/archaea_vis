@@ -367,6 +367,8 @@ export interface DxcClusterRow {
   n_good_domain: number;
   n_pfam_families: number;
   deep_homology_score: number | null;
+  avg_best_lddt: number | null;
+  lddt_classification: string | null;
 }
 
 export interface DxcClusterDetail extends DxcClusterRow {
@@ -379,7 +381,16 @@ export interface DxcClusterDetail extends DxcClusterRow {
 }
 
 export interface DxcXgroupComposition { xgroup: string; n_tgroups: number; n_domains: number; n_good: number; n_low_conf: number; n_pfam: number; }
-export interface DxcMember { domain_id: number; protein_id: string; domain_num: string; range: string; judge: string|null; t_group: string|null; dpam_prob: number|null; pfam_hits: string|null; class_name: string|null; phylum: string|null; }
+export interface DxcMember { domain_id: number; protein_id: string; domain_num: string; range: string; judge: string|null; t_group: string|null; dpam_prob: number|null; pfam_hits: string|null; class_name: string|null; phylum: string|null; best_lddt: number|null; lddt_xgroup: string|null; lddt_class: string|null; }
 export interface DxcPfamEvidence { pfam_acc: string; pfam_name: string|null; total_domains: number; xgroup_counts: Record<string,number>; }
 export interface DxcTaxonDist { class_name: string; phylum: string|null; count: number; }
 export interface BridgePair { xg1: string; xg2: string; n_clusters: number; total_domains: number; cluster_ids: string[]; shared_pfam: string[]; }
+
+// ============================================
+// LDDT Classification Types
+// ============================================
+
+export type LddtClass = 'NOVEL' | 'WEAK_SIMILARITY' | 'MODERATE_SIMILARITY' | 'ECOD_ASSIGNABLE';
+
+export interface LddtBucket { bucket: string; count: number; }
+export interface XgroupSuggestion { xgroup: string; n_hits: number; avg_lddt: number; max_lddt: number; }

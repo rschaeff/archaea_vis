@@ -77,9 +77,11 @@ export async function GET() {
       protSeqSummary,
       protStructSummary,
       domSeqSummary,
+      domStructSummary,
       protSeqDist,
       protStructDist,
       domSeqDist,
+      domStructDist,
       crossResult,
       noveltyResult,
       topClusters,
@@ -87,9 +89,11 @@ export async function GET() {
       summaryQuery('protein_seq_clusters'),
       summaryQuery('protein_struct_clusters'),
       summaryQuery('domain_seq_clusters'),
+      summaryQuery('domain_struct_clusters'),
       distQuery('protein_seq_clusters'),
       distQuery('protein_struct_clusters'),
       distQuery('domain_seq_clusters'),
+      distQuery('domain_struct_clusters'),
       query<CrossRow>(`
         SELECT
           COUNT(*) FILTER (WHERE psc.cluster_size > 1 AND pxc.cluster_size > 1) AS both_clustered,
@@ -135,6 +139,7 @@ export async function GET() {
     const ps = parseSummary(protSeqSummary.rows[0]);
     const px = parseSummary(protStructSummary.rows[0]);
     const ds = parseSummary(domSeqSummary.rows[0]);
+    const dx = parseSummary(domStructSummary.rows[0]);
 
     const cross = crossResult.rows[0];
     const crossParsed = {
@@ -153,12 +158,13 @@ export async function GET() {
         { type: 'protein_seq', label: 'Protein Sequence', method: 'MMseqs2', ...ps },
         { type: 'protein_struct', label: 'Protein Structure', method: 'Foldseek', ...px },
         { type: 'domain_seq', label: 'Domain Sequence', method: 'MMseqs2', ...ds },
-        { type: 'domain_struct', label: 'Domain Structure', method: 'Foldseek', clusters: 0, members: 0, singletons: 0, largest: 0, pending: true },
+        { type: 'domain_struct', label: 'Domain Structure', method: 'Foldseek', ...dx },
       ],
       size_distributions: {
         protein_seq: parseDist(protSeqDist.rows),
         protein_struct: parseDist(protStructDist.rows),
         domain_seq: parseDist(domSeqDist.rows),
+        domain_struct: parseDist(domStructDist.rows),
       },
       cross_comparison: crossParsed,
       ecod_novelty: {

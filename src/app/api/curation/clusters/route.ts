@@ -18,6 +18,8 @@ const SORT_WHITELIST = [
   'n_pfam_families',
   'n_tgroups',
   'n_classes',
+  'avg_best_lddt',
+  'lddt_classification',
 ];
 
 export async function GET(request: NextRequest) {
@@ -31,6 +33,7 @@ export async function GET(request: NextRequest) {
     const minDeepHomology = parseFloat(searchParams.get('min_deep_homology') || '0');
     const minGoodDomain = parseInt(searchParams.get('min_good_domain') || '0');
     const hasPfam = searchParams.get('has_pfam') || 'all';
+    const lddtClass = searchParams.get('lddt_class') || 'all';
 
     // Build WHERE clause
     const conditions: string[] = ["level = 'domain'"];
@@ -58,6 +61,10 @@ export async function GET(request: NextRequest) {
     } else if (hasPfam === 'no') {
       conditions.push('n_pfam_families = 0');
     }
+    if (lddtClass !== 'all') {
+      conditions.push(`lddt_classification = $${paramIdx++}`);
+      params.push(lddtClass);
+    }
 
     const whereClause = conditions.join(' AND ');
 
@@ -74,6 +81,10 @@ export async function GET(request: NextRequest) {
         query<{ avg: string | null }>(
           "SELECT AVG(deep_homology_score) AS avg FROM archaea.struct_cluster_diversity WHERE level = 'domain' AND n_xgroups >= 2"
         ),
+        // LDDT tier counts
+        query<{ lddt_classification: string | null; count: string }>(
+          "SELECT lddt_classification, COUNT(*) AS count FROM archaea.struct_cluster_diversity WHERE level = 'domain' AND lddt_classification IS NOT NULL GROUP BY lddt_classification"
+        ),
       ]),
       // Filtered count
       query<{ total: string }>(
@@ -84,7 +95,8 @@ export async function GET(request: NextRequest) {
       query(
         `SELECT struct_cluster_id, cluster_size, n_seq_clusters, n_classes,
                 taxonomic_entropy, n_xgroups, n_tgroups, dominant_tgroup,
-                dominant_tgroup_frac, n_good_domain, n_pfam_families, deep_homology_score
+                dominant_tgroup_frac, n_good_domain, n_pfam_families, deep_homology_score,
+                avg_best_lddt, lddt_classification
          FROM archaea.struct_cluster_diversity
          WHERE ${whereClause}
          ORDER BY ${sortColumn} ${sortOrder} NULLS LAST
@@ -93,7 +105,15 @@ export async function GET(request: NextRequest) {
       ),
     ]);
 
-    const [totalRes, multiXgRes, avgDhRes] = overviewRes;
+    const [totalRes, multiXgRes, avgDhRes, lddtTierRes] = overviewRes;
+
+    // Build LDDT tier counts object
+    const lddt_tier_counts: Record<string, number> = {};
+    for (const row of lddtTierRes.rows) {
+      if (row.lddt_classification) {
+        lddt_tier_counts[row.lddt_classification] = parseInt(row.count);
+      }
+    }
 
     return NextResponse.json({
       overview: {
@@ -101,6 +121,7 @@ export async function GET(request: NextRequest) {
         multi_xgroup_good_domain: parseInt(multiXgRes.rows[0]?.count || '0'),
         reciprocal_bridges: 108,
         mean_deep_homology: avgDhRes.rows[0]?.avg ? parseFloat(avgDhRes.rows[0].avg) : null,
+        lddt_tier_counts,
       },
       items: dataRes.rows.map(row => ({
         ...row,
@@ -114,6 +135,8 @@ export async function GET(request: NextRequest) {
         n_good_domain: parseInt(row.n_good_domain),
         n_pfam_families: parseInt(row.n_pfam_families),
         deep_homology_score: row.deep_homology_score != null ? parseFloat(row.deep_homology_score) : null,
+        avg_best_lddt: row.avg_best_lddt != null ? parseFloat(row.avg_best_lddt) : null,
+        lddt_classification: row.lddt_classification || null,
       })),
       total: parseInt(countRes.rows[0]?.total || '0'),
       limit,

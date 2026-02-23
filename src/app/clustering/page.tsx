@@ -210,7 +210,7 @@ export default function ClusteringPage() {
       </div>
 
       {/* Cluster Size Distributions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
         {data.summary.filter(s => !s.pending).map(s => {
           const dist = data.size_distributions[s.type] || [];
           const sorted = BIN_ORDER.map(b => dist.find(d => d.bin === b) || { bin: b, clusters: 0, members: 0 });

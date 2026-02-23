@@ -8,10 +8,11 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import StatCard from '@/components/StatCard';
 import Pagination from '@/components/Pagination';
+import { lddtClassColor, lddtClassLabel } from '@/lib/utils';
 
 interface Overview {
   tier1: { clusters: number; proteins: number; multi_member: number; cross_phylum: number };
-  tier2: { clusters: number; domains: number; proteins: number; multi_member: number; cross_phylum_5plus: number };
+  tier2: { clusters: number; domains: number; proteins: number; multi_member: number; cross_phylum_5plus: number; lddt_tier_counts: Record<string, number> };
   cross_tier_hits: number;
 }
 
@@ -39,6 +40,8 @@ interface Tier2Row {
   phyla: string;
   genome_count: number;
   protein_count: number;
+  avg_best_lddt: number | null;
+  lddt_classification: string | null;
 }
 
 interface ApiResponse {
@@ -59,6 +62,7 @@ export default function NovelFoldBrowser() {
   const [minSize, setMinSize] = useState('1');
   const [crossPhylum, setCrossPhylum] = useState('');
   const [phylum, setPhylum] = useState('');
+  const [lddtClass, setLddtClass] = useState('');
   const [sort, setSort] = useState('cluster_size');
   const [order, setOrder] = useState('DESC');
   const [offset, setOffset] = useState(0);
@@ -77,6 +81,7 @@ export default function NovelFoldBrowser() {
     if (minSize && parseInt(minSize) > 1) params.set('min_size', minSize);
     if (crossPhylum) params.set('cross_phylum', crossPhylum);
     if (phylum) params.set('phylum', phylum);
+    if (lddtClass && tier === 2) params.set('lddt_class', lddtClass);
 
     try {
       const res = await fetch(`/api/novel-folds?${params.toString()}`);
@@ -87,7 +92,7 @@ export default function NovelFoldBrowser() {
     } finally {
       setLoading(false);
     }
-  }, [tier, minSize, crossPhylum, phylum, sort, order, offset]);
+  }, [tier, minSize, crossPhylum, phylum, lddtClass, sort, order, offset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -99,6 +104,7 @@ export default function NovelFoldBrowser() {
     setMinSize('1');
     setCrossPhylum('');
     setPhylum('');
+    setLddtClass('');
   };
 
   const handleSort = (column: string) => {
@@ -134,32 +140,42 @@ export default function NovelFoldBrowser() {
 
       {/* Overview Stats */}
       {overview && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <StatCard
-            title="Tier 1: Dark Proteins"
-            value={String(overview.tier1.proteins)}
-            subtitle={`${overview.tier1.clusters} clusters`}
-            color="red"
-          />
-          <StatCard
-            title="Tier 2: Orphan Domains"
-            value={overview.tier2.domains.toLocaleString()}
-            subtitle={`${overview.tier2.clusters.toLocaleString()} clusters`}
-            color="amber"
-          />
-          <StatCard
-            title="Cross-tier Matches"
-            value={String(overview.cross_tier_hits)}
-            subtitle="structural links"
-            color="purple"
-          />
-          <StatCard
-            title="Cross-phylum (5+)"
-            value={String(overview.tier2.cross_phylum_5plus)}
-            subtitle="T2 clusters span 5+ phyla"
-            color="green"
-          />
-        </div>
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <StatCard
+              title="Tier 1: Dark Proteins"
+              value={String(overview.tier1.proteins)}
+              subtitle={`${overview.tier1.clusters} clusters`}
+              color="red"
+            />
+            <StatCard
+              title="Tier 2: Orphan Domains"
+              value={overview.tier2.domains.toLocaleString()}
+              subtitle={`${overview.tier2.clusters.toLocaleString()} clusters`}
+              color="amber"
+            />
+            <StatCard
+              title="Cross-tier Matches"
+              value={String(overview.cross_tier_hits)}
+              subtitle="structural links"
+              color="purple"
+            />
+            <StatCard
+              title="Cross-phylum (5+)"
+              value={String(overview.tier2.cross_phylum_5plus)}
+              subtitle="T2 clusters span 5+ phyla"
+              color="green"
+            />
+          </div>
+          {tier === 2 && overview.tier2.lddt_tier_counts && (
+            <div className="grid grid-cols-4 gap-3 mb-6">
+              <LddtStatCard label="Novel" count={overview.tier2.lddt_tier_counts['NOVEL'] || 0} colorClass="text-purple-700" bgClass="bg-purple-50" />
+              <LddtStatCard label="Weak" count={overview.tier2.lddt_tier_counts['WEAK_SIMILARITY'] || 0} colorClass="text-orange-700" bgClass="bg-orange-50" />
+              <LddtStatCard label="Moderate" count={overview.tier2.lddt_tier_counts['MODERATE_SIMILARITY'] || 0} colorClass="text-yellow-700" bgClass="bg-yellow-50" />
+              <LddtStatCard label="Strong" count={overview.tier2.lddt_tier_counts['ECOD_ASSIGNABLE'] || 0} colorClass="text-green-700" bgClass="bg-green-50" />
+            </div>
+          )}
+        </>
       )}
 
       {/* Tier Tabs */}
@@ -190,7 +206,7 @@ export default function NovelFoldBrowser() {
 
       {/* Filters */}
       <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Min Size</label>
             <input
@@ -223,9 +239,25 @@ export default function NovelFoldBrowser() {
               className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
             />
           </div>
+          {tier === 2 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">LDDT Tier</label>
+              <select
+                value={lddtClass}
+                onChange={e => { setLddtClass(e.target.value); setOffset(0); }}
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+              >
+                <option value="">All</option>
+                <option value="NOVEL">Novel (&lt;0.3)</option>
+                <option value="WEAK_SIMILARITY">Weak (0.3-0.5)</option>
+                <option value="MODERATE_SIMILARITY">Moderate (0.5-0.7)</option>
+                <option value="ECOD_ASSIGNABLE">Strong (&ge;0.7)</option>
+              </select>
+            </div>
+          )}
           <div className="flex items-end">
             <button
-              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setOffset(0); }}
+              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setLddtClass(''); setOffset(0); }}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
             >
               Reset
@@ -304,8 +336,9 @@ export default function NovelFoldBrowser() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cross-phylum</th>
                   <SortHeader column="avg_plddt" label="Avg pLDDT" />
                   <SortHeader column="avg_dpam_prob" label="Avg DPAM" />
+                  <SortHeader column="avg_best_lddt" label="Avg LDDT" />
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">LDDT Tier</th>
                   <SortHeader column="phylum_count" label="Phyla" />
-                  <SortHeader column="genome_count" label="Genomes" />
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phyla</th>
                 </tr>
               </thead>
@@ -313,13 +346,13 @@ export default function NovelFoldBrowser() {
                 {loading ? (
                   Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      {Array.from({ length: 9 }).map((_, j) => (
+                      {Array.from({ length: 10 }).map((_, j) => (
                         <td key={j} className="px-3 py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
                       ))}
                     </tr>
                   ))
                 ) : data?.items.length === 0 ? (
-                  <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
+                  <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
                 ) : (
                   (data?.items as Tier2Row[])?.map(c => (
                     <tr key={c.cluster_id} className="hover:bg-gray-50">
@@ -339,8 +372,17 @@ export default function NovelFoldBrowser() {
                       </td>
                       <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.avg_plddt?.toFixed(1) || '-'}</td>
                       <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.avg_dpam_prob?.toFixed(3) || '-'}</td>
+                      <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.avg_best_lddt?.toFixed(3) || '-'}</td>
+                      <td className="px-3 py-2 text-sm">
+                        {c.lddt_classification ? (
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${lddtClassColor(c.lddt_classification)}`}>
+                            {lddtClassLabel(c.lddt_classification)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
                       <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.phylum_count}</td>
-                      <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.genome_count}</td>
                       <td className="px-3 py-2 text-sm text-gray-600 max-w-[200px] truncate" title={c.phyla}>
                         {c.phyla}
                       </td>
@@ -358,6 +400,15 @@ export default function NovelFoldBrowser() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function LddtStatCard({ label, count, colorClass, bgClass }: { label: string; count: number; colorClass: string; bgClass: string }) {
+  return (
+    <div className={`${bgClass} border border-gray-200 rounded-lg px-3 py-2 text-center`}>
+      <div className={`text-lg font-bold ${colorClass}`}>{count.toLocaleString()}</div>
+      <div className="text-xs text-gray-500">LDDT {label}</div>
     </div>
   );
 }

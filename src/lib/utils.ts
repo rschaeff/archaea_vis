@@ -111,3 +111,29 @@ export function judgeColor(judge: string | null): string {
     default: return 'bg-gray-100 text-gray-800';
   }
 }
+
+/**
+ * Determine color for an LDDT classification tier badge.
+ */
+export function lddtClassColor(cls: string | null): string {
+  switch (cls) {
+    case 'NOVEL': return 'bg-purple-100 text-purple-800';
+    case 'WEAK_SIMILARITY': return 'bg-orange-100 text-orange-800';
+    case 'MODERATE_SIMILARITY': return 'bg-yellow-100 text-yellow-800';
+    case 'ECOD_ASSIGNABLE': return 'bg-green-100 text-green-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+}
+
+/**
+ * Short display label for LDDT classification.
+ */
+export function lddtClassLabel(cls: string | null): string {
+  switch (cls) {
+    case 'NOVEL': return 'Novel';
+    case 'WEAK_SIMILARITY': return 'Weak';
+    case 'MODERATE_SIMILARITY': return 'Moderate';
+    case 'ECOD_ASSIGNABLE': return 'Strong';
+    default: return '-';
+  }
+}
