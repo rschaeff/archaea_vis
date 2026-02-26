@@ -372,7 +372,7 @@ export default function NovelFoldBrowser() {
                   (data?.items as Tier1Row[])?.map(c => (
                     <tr key={c.cluster_id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 text-sm">
-                        <Link href={`/novel-folds/${c.cluster_id}`} className="text-blue-600 hover:text-blue-800 font-mono">
+                        <Link href={`/novel-folds/${c.cluster_id}`} target="_blank" className="text-blue-600 hover:text-blue-800 font-mono">
                           {c.cluster_id}
                         </Link>
                       </td>
@@ -435,7 +435,7 @@ export default function NovelFoldBrowser() {
                   (data?.items as Tier2Row[])?.map(c => (
                     <tr key={c.cluster_id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 text-sm">
-                        <Link href={`/novel-folds/${c.cluster_id}`} className="text-blue-600 hover:text-blue-800 font-mono">
+                        <Link href={`/novel-folds/${c.cluster_id}`} target="_blank" className="text-blue-600 hover:text-blue-800 font-mono">
                           {c.cluster_id}
                         </Link>
                       </td>
