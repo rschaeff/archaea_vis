@@ -172,14 +172,50 @@ export default function NovelFoldBrowser() {
             />
           </div>
           {tier === 1 && overview.tier1.dark_matter_counts && (
-            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
-              <DmStatCard label="Genuine Dark" count={overview.tier1.dark_matter_counts['GENUINE_DARK'] || 0} colorClass="text-red-700" bgClass="bg-red-50" />
-              <DmStatCard label="Rescue" count={overview.tier1.dark_matter_counts['RESCUE'] || 0} colorClass="text-green-700" bgClass="bg-green-50" />
-              <DmStatCard label="Sub-threshold" count={overview.tier1.dark_matter_counts['SUB_THRESHOLD'] || 0} colorClass="text-yellow-700" bgClass="bg-yellow-50" />
-              <DmStatCard label="Low Quality" count={overview.tier1.dark_matter_counts['LOW_CONFIDENCE_STRUCTURE'] || 0} colorClass="text-gray-500" bgClass="bg-gray-50" />
-              <DmStatCard label="Too Short" count={overview.tier1.dark_matter_counts['TOO_SHORT'] || 0} colorClass="text-gray-500" bgClass="bg-gray-50" />
-              <DmStatCard label="Classified" count={overview.tier1.dark_matter_counts['CLASSIFIED'] || 0} colorClass="text-blue-700" bgClass="bg-blue-50" />
-            </div>
+            <>
+              <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
+                <DmStatCard label="Genuine Dark" count={overview.tier1.dark_matter_counts['GENUINE_DARK'] || 0} colorClass="text-red-700" bgClass="bg-red-50" />
+                <DmStatCard label="Rescue" count={overview.tier1.dark_matter_counts['RESCUE'] || 0} colorClass="text-green-700" bgClass="bg-green-50" />
+                <DmStatCard label="Sub-threshold" count={overview.tier1.dark_matter_counts['SUB_THRESHOLD'] || 0} colorClass="text-yellow-700" bgClass="bg-yellow-50" />
+                <DmStatCard label="Low Quality" count={overview.tier1.dark_matter_counts['LOW_CONFIDENCE_STRUCTURE'] || 0} colorClass="text-gray-500" bgClass="bg-gray-50" />
+                <DmStatCard label="Too Short" count={overview.tier1.dark_matter_counts['TOO_SHORT'] || 0} colorClass="text-gray-500" bgClass="bg-gray-50" />
+                <DmStatCard label="Classified" count={overview.tier1.dark_matter_counts['CLASSIFIED'] || 0} colorClass="text-blue-700" bgClass="bg-blue-50" />
+              </div>
+              <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6 text-sm text-gray-600">
+                <p className="font-medium text-gray-800 mb-2">Dark Matter Classification</p>
+                <p className="mb-2">
+                  Each Tier 1 cluster is classified by cross-referencing its members against
+                  protein-level structural clusters (PXC). The class reflects the most &ldquo;novel&rdquo;
+                  member&mdash;if any member lacks explanation, the whole cluster is flagged for curation.
+                </p>
+                <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
+                  <div className="flex gap-2">
+                    <dt><span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Genuine Dark</span></dt>
+                    <dd>No DPAM domains, well-folded (pLDDT &ge; 70), &ge; 100 aa. True curation targets.</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt><span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Rescue</span></dt>
+                    <dd>Sub-threshold domains whose DXC cluster contains good_domain members&mdash;classifiable by transitivity.</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt><span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Sub-threshold</span></dt>
+                    <dd>DPAM found a domain hit but scored below the good_domain threshold. Calibration artifact.</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt><span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">Low Quality</span></dt>
+                    <dd>No domains and all members have pLDDT &lt; 70. Likely disordered or poorly predicted.</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt><span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">Too Short</span></dt>
+                    <dd>No domains, well-folded, but all members &lt; 100 aa. Below DPAM template matching sensitivity.</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt><span className="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">Classified</span></dt>
+                    <dd>At least one PXC cluster member has a good_domain assignment. Not structurally novel.</dd>
+                  </div>
+                </dl>
+              </div>
+            </>
           )}
           {tier === 2 && overview.tier2.lddt_tier_counts && (
             <div className="grid grid-cols-4 gap-3 mb-6">
