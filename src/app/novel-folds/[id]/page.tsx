@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import ProgressBar from '@/components/ProgressBar';
-import { lddtClassColor, lddtClassLabel } from '@/lib/utils';
+import { lddtClassColor, lddtClassLabel, darkMatterClassColor, darkMatterClassLabel } from '@/lib/utils';
 
 // Tier 1 types
 interface Tier1Cluster {
@@ -23,6 +23,7 @@ interface Tier1Cluster {
   phylum_count: number;
   phyla: string;
   genome_count: number;
+  dark_matter_class: string | null;
 }
 
 interface Tier1Member {
@@ -198,6 +199,11 @@ export default function NovelFoldDetailPage() {
             }`}>
               {isTier1 ? 'Tier 1: Dark Protein' : 'Tier 2: Orphan Domain'}
             </span>
+            {isTier1 && (cluster as Tier1Cluster).dark_matter_class && (
+              <span className={`px-2.5 py-1 rounded text-xs font-semibold ${darkMatterClassColor((cluster as Tier1Cluster).dark_matter_class)}`}>
+                {darkMatterClassLabel((cluster as Tier1Cluster).dark_matter_class)}
+              </span>
+            )}
             {!isTier1 && (cluster as Tier2Cluster).lddt_classification && (
               <span className={`px-2.5 py-1 rounded text-xs font-semibold ${lddtClassColor((cluster as Tier2Cluster).lddt_classification)}`}>
                 LDDT: {lddtClassLabel((cluster as Tier2Cluster).lddt_classification)}

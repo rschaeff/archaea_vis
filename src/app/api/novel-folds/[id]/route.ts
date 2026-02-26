@@ -44,7 +44,7 @@ export async function GET(
 }
 
 async function handleTier1(clusterId: string) {
-  const [clusterResult, membersResult, edgesResult, phylumResult, crossTierResult] =
+  const [clusterResult, membersResult, edgesResult, phylumResult, crossTierResult, darkMatterResult] =
     await Promise.all([
       // Cluster summary from view
       query(`
@@ -119,6 +119,31 @@ async function handleTier1(clusterId: string) {
         )
         ORDER BY ct.alntmscore DESC
       `, [clusterId]),
+
+      // Dark matter class: map T1 cluster → member PXC → most novel class
+      query<{ dark_matter_class: string }>(`
+        SELECT
+          CASE MIN(CASE dm.dark_matter_class
+            WHEN 'GENUINE_DARK' THEN 1
+            WHEN 'TOO_SHORT' THEN 2
+            WHEN 'LOW_CONFIDENCE_STRUCTURE' THEN 3
+            WHEN 'SUB_THRESHOLD' THEN 4
+            WHEN 'RESCUE' THEN 5
+            WHEN 'CLASSIFIED' THEN 6
+            ELSE 1
+          END)
+            WHEN 1 THEN 'GENUINE_DARK'
+            WHEN 2 THEN 'TOO_SHORT'
+            WHEN 3 THEN 'LOW_CONFIDENCE_STRUCTURE'
+            WHEN 4 THEN 'SUB_THRESHOLD'
+            WHEN 5 THEN 'RESCUE'
+            WHEN 6 THEN 'CLASSIFIED'
+          END AS dark_matter_class
+        FROM archaea.novel_fold_clusters nfc
+        LEFT JOIN archaea.protein_struct_clusters psc ON psc.protein_id = nfc.protein_id
+        LEFT JOIN archaea.v_pxc_dark_matter_class dm ON dm.cluster_id = psc.cluster_id
+        WHERE nfc.cluster_id = $1
+      `, [clusterId]),
     ]);
 
   if (clusterResult.rows.length === 0) {
@@ -129,6 +154,7 @@ async function handleTier1(clusterId: string) {
   }
 
   const cluster = clusterResult.rows[0];
+  const dmClass = darkMatterResult.rows[0]?.dark_matter_class || null;
 
   return NextResponse.json({
     tier: 1,
@@ -137,6 +163,7 @@ async function handleTier1(clusterId: string) {
       avg_plddt: cluster.avg_plddt ? parseFloat(String(cluster.avg_plddt)) : null,
       min_plddt: cluster.min_plddt ? parseFloat(String(cluster.min_plddt)) : null,
       max_plddt: cluster.max_plddt ? parseFloat(String(cluster.max_plddt)) : null,
+      dark_matter_class: dmClass,
     },
     members: membersResult.rows.map(m => ({
       ...m,

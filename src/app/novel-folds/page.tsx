@@ -8,10 +8,10 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import StatCard from '@/components/StatCard';
 import Pagination from '@/components/Pagination';
-import { lddtClassColor, lddtClassLabel } from '@/lib/utils';
+import { lddtClassColor, lddtClassLabel, darkMatterClassColor, darkMatterClassLabel } from '@/lib/utils';
 
 interface Overview {
-  tier1: { clusters: number; proteins: number; multi_member: number; cross_phylum: number };
+  tier1: { clusters: number; proteins: number; multi_member: number; cross_phylum: number; dark_matter_counts: Record<string, number> };
   tier2: { clusters: number; domains: number; proteins: number; multi_member: number; cross_phylum_5plus: number; lddt_tier_counts: Record<string, number> };
   cross_tier_hits: number;
 }
@@ -26,6 +26,7 @@ interface Tier1Row {
   phylum_count: number;
   phyla: string;
   genome_count: number;
+  dark_matter_class: string | null;
 }
 
 interface Tier2Row {
@@ -63,6 +64,7 @@ export default function NovelFoldBrowser() {
   const [crossPhylum, setCrossPhylum] = useState('');
   const [phylum, setPhylum] = useState('');
   const [lddtClass, setLddtClass] = useState('');
+  const [darkMatterClassFilter, setDarkMatterClassFilter] = useState('');
   const [sort, setSort] = useState('cluster_size');
   const [order, setOrder] = useState('DESC');
   const [offset, setOffset] = useState(0);
@@ -82,6 +84,7 @@ export default function NovelFoldBrowser() {
     if (crossPhylum) params.set('cross_phylum', crossPhylum);
     if (phylum) params.set('phylum', phylum);
     if (lddtClass && tier === 2) params.set('lddt_class', lddtClass);
+    if (darkMatterClassFilter && tier === 1) params.set('dark_matter_class', darkMatterClassFilter);
 
     try {
       const res = await fetch(`/api/novel-folds?${params.toString()}`);
@@ -92,7 +95,7 @@ export default function NovelFoldBrowser() {
     } finally {
       setLoading(false);
     }
-  }, [tier, minSize, crossPhylum, phylum, lddtClass, sort, order, offset]);
+  }, [tier, minSize, crossPhylum, phylum, lddtClass, darkMatterClassFilter, sort, order, offset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -105,6 +108,7 @@ export default function NovelFoldBrowser() {
     setCrossPhylum('');
     setPhylum('');
     setLddtClass('');
+    setDarkMatterClassFilter('');
   };
 
   const handleSort = (column: string) => {
@@ -167,6 +171,16 @@ export default function NovelFoldBrowser() {
               color="green"
             />
           </div>
+          {tier === 1 && overview.tier1.dark_matter_counts && (
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-6">
+              <DmStatCard label="Genuine Dark" count={overview.tier1.dark_matter_counts['GENUINE_DARK'] || 0} colorClass="text-red-700" bgClass="bg-red-50" />
+              <DmStatCard label="Rescue" count={overview.tier1.dark_matter_counts['RESCUE'] || 0} colorClass="text-green-700" bgClass="bg-green-50" />
+              <DmStatCard label="Sub-threshold" count={overview.tier1.dark_matter_counts['SUB_THRESHOLD'] || 0} colorClass="text-yellow-700" bgClass="bg-yellow-50" />
+              <DmStatCard label="Low Quality" count={overview.tier1.dark_matter_counts['LOW_CONFIDENCE_STRUCTURE'] || 0} colorClass="text-gray-500" bgClass="bg-gray-50" />
+              <DmStatCard label="Too Short" count={overview.tier1.dark_matter_counts['TOO_SHORT'] || 0} colorClass="text-gray-500" bgClass="bg-gray-50" />
+              <DmStatCard label="Classified" count={overview.tier1.dark_matter_counts['CLASSIFIED'] || 0} colorClass="text-blue-700" bgClass="bg-blue-50" />
+            </div>
+          )}
           {tier === 2 && overview.tier2.lddt_tier_counts && (
             <div className="grid grid-cols-4 gap-3 mb-6">
               <LddtStatCard label="Novel" count={overview.tier2.lddt_tier_counts['NOVEL'] || 0} colorClass="text-purple-700" bgClass="bg-purple-50" />
@@ -239,6 +253,24 @@ export default function NovelFoldBrowser() {
               className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
             />
           </div>
+          {tier === 1 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Dark Matter Class</label>
+              <select
+                value={darkMatterClassFilter}
+                onChange={e => { setDarkMatterClassFilter(e.target.value); setOffset(0); }}
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+              >
+                <option value="">All</option>
+                <option value="GENUINE_DARK">Genuine Dark</option>
+                <option value="RESCUE">Rescue</option>
+                <option value="SUB_THRESHOLD">Sub-threshold</option>
+                <option value="LOW_CONFIDENCE_STRUCTURE">Low Quality</option>
+                <option value="TOO_SHORT">Too Short</option>
+                <option value="CLASSIFIED">Classified</option>
+              </select>
+            </div>
+          )}
           {tier === 2 && (
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">LDDT Tier</label>
@@ -257,7 +289,7 @@ export default function NovelFoldBrowser() {
           )}
           <div className="flex items-end">
             <button
-              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setLddtClass(''); setOffset(0); }}
+              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setLddtClass(''); setDarkMatterClassFilter(''); setOffset(0); }}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
             >
               Reset
@@ -282,6 +314,7 @@ export default function NovelFoldBrowser() {
                   <SortHeader column="cluster_id" label="Cluster" />
                   <SortHeader column="cluster_size" label="Size" />
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cross-phylum</th>
+                  <SortHeader column="dark_matter_class" label="DM Class" />
                   <SortHeader column="avg_plddt" label="Avg pLDDT" />
                   <SortHeader column="phylum_count" label="Phyla" />
                   <SortHeader column="genome_count" label="Genomes" />
@@ -292,13 +325,13 @@ export default function NovelFoldBrowser() {
                 {loading ? (
                   Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <td key={j} className="px-3 py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
                       ))}
                     </tr>
                   ))
                 ) : data?.items.length === 0 ? (
-                  <tr><td colSpan={7} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
+                  <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
                 ) : (
                   (data?.items as Tier1Row[])?.map(c => (
                     <tr key={c.cluster_id} className="hover:bg-gray-50">
@@ -313,6 +346,15 @@ export default function NovelFoldBrowser() {
                           <span className="text-green-600 font-medium">Yes</span>
                         ) : (
                           <span className="text-gray-400">No</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-sm">
+                        {c.dark_matter_class ? (
+                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${darkMatterClassColor(c.dark_matter_class)}`}>
+                            {darkMatterClassLabel(c.dark_matter_class)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.avg_plddt?.toFixed(1) || '-'}</td>
@@ -400,6 +442,15 @@ export default function NovelFoldBrowser() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function DmStatCard({ label, count, colorClass, bgClass }: { label: string; count: number; colorClass: string; bgClass: string }) {
+  return (
+    <div className={`${bgClass} border border-gray-200 rounded-lg px-3 py-2 text-center`}>
+      <div className={`text-lg font-bold ${colorClass}`}>{count.toLocaleString()}</div>
+      <div className="text-xs text-gray-500">{label}</div>
     </div>
   );
 }

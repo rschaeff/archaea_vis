@@ -137,3 +137,35 @@ export function lddtClassLabel(cls: string | null): string {
     default: return '-';
   }
 }
+
+/**
+ * Determine color class for a dark matter classification badge.
+ */
+export function darkMatterClassColor(cls: string | null): string {
+  switch (cls) {
+    case 'GENUINE_DARK': return 'bg-red-100 text-red-800';
+    case 'DARK_WITH_PFAM': return 'bg-orange-100 text-orange-800';
+    case 'TOO_SHORT': return 'bg-gray-100 text-gray-500';
+    case 'LOW_CONFIDENCE_STRUCTURE': return 'bg-gray-100 text-gray-500';
+    case 'SUB_THRESHOLD': return 'bg-yellow-100 text-yellow-800';
+    case 'RESCUE': return 'bg-green-100 text-green-800';
+    case 'CLASSIFIED': return 'bg-blue-100 text-blue-800';
+    default: return 'bg-gray-100 text-gray-800';
+  }
+}
+
+/**
+ * Short display label for dark matter classification.
+ */
+export function darkMatterClassLabel(cls: string | null): string {
+  switch (cls) {
+    case 'GENUINE_DARK': return 'Genuine Dark';
+    case 'DARK_WITH_PFAM': return 'DUF/Pfam';
+    case 'TOO_SHORT': return 'Too Short';
+    case 'LOW_CONFIDENCE_STRUCTURE': return 'Low Quality';
+    case 'SUB_THRESHOLD': return 'Sub-threshold';
+    case 'RESCUE': return 'Rescue';
+    case 'CLASSIFIED': return 'Classified';
+    default: return '-';
+  }
+}

@@ -17,6 +17,7 @@ const TIER1_SORT_COLUMNS = [
   'phylum_count',
   'cluster_id',
   'genome_count',
+  'dark_matter_class',
 ];
 
 const TIER2_SORT_COLUMNS = [
@@ -56,9 +57,10 @@ export async function GET(request: NextRequest) {
     const crossPhylum = searchParams.get('cross_phylum');
     const phylum = searchParams.get('phylum');
     const lddtClass = searchParams.get('lddt_class');
+    const darkMatterClass = searchParams.get('dark_matter_class');
 
     // Overview stats — always fetched for both tiers
-    const [tier1Summary, tier2Summary, crossTierCount, tier2CrossPhylum5Plus, tier2LddtCounts] = await Promise.all([
+    const [tier1Summary, tier2Summary, crossTierCount, tier2CrossPhylum5Plus, tier2LddtCounts, tier1DarkMatterCounts] = await Promise.all([
       query<{
         clusters: string;
         proteins: string;
@@ -118,11 +120,52 @@ export async function GET(request: NextRequest) {
         GROUP BY lddt_class
         ORDER BY lddt_class
       `),
+
+      // Dark matter class counts for Tier 1 clusters (T1 → member → PXC → dark_matter_class)
+      // For each T1 cluster, pick the "most novel" class among its members' PXC clusters
+      // Priority: GENUINE_DARK(1) > TOO_SHORT(2) > LOW_CONFIDENCE_STRUCTURE(3) > SUB_THRESHOLD(4) > RESCUE(5) > CLASSIFIED(6)
+      query<{ dark_matter_class: string; count: string }>(`
+        WITH t1_dm AS (
+          SELECT
+            nfc.cluster_id AS t1_cluster_id,
+            MIN(CASE dm.dark_matter_class
+              WHEN 'GENUINE_DARK' THEN 1
+              WHEN 'TOO_SHORT' THEN 2
+              WHEN 'LOW_CONFIDENCE_STRUCTURE' THEN 3
+              WHEN 'SUB_THRESHOLD' THEN 4
+              WHEN 'RESCUE' THEN 5
+              WHEN 'CLASSIFIED' THEN 6
+              ELSE 1
+            END) AS class_rank
+          FROM (SELECT DISTINCT cluster_id, protein_id FROM archaea.novel_fold_clusters) nfc
+          LEFT JOIN archaea.protein_struct_clusters psc ON psc.protein_id = nfc.protein_id
+          LEFT JOIN archaea.v_pxc_dark_matter_class dm ON dm.cluster_id = psc.cluster_id
+          GROUP BY nfc.cluster_id
+        )
+        SELECT
+          CASE class_rank
+            WHEN 1 THEN 'GENUINE_DARK'
+            WHEN 2 THEN 'TOO_SHORT'
+            WHEN 3 THEN 'LOW_CONFIDENCE_STRUCTURE'
+            WHEN 4 THEN 'SUB_THRESHOLD'
+            WHEN 5 THEN 'RESCUE'
+            WHEN 6 THEN 'CLASSIFIED'
+          END AS dark_matter_class,
+          COUNT(*) AS count
+        FROM t1_dm
+        GROUP BY class_rank
+        ORDER BY class_rank
+      `),
     ]);
 
     const lddtTierCounts: Record<string, number> = {};
     for (const r of tier2LddtCounts.rows) {
       lddtTierCounts[r.lddt_class] = parseInt(r.count);
+    }
+
+    const darkMatterCounts: Record<string, number> = {};
+    for (const r of tier1DarkMatterCounts.rows) {
+      darkMatterCounts[r.dark_matter_class] = parseInt(r.count);
     }
 
     const overview = {
@@ -131,6 +174,7 @@ export async function GET(request: NextRequest) {
         proteins: parseInt(tier1Summary.rows[0]?.proteins || '0'),
         multi_member: parseInt(tier1Summary.rows[0]?.multi_member || '0'),
         cross_phylum: parseInt(tier1Summary.rows[0]?.cross_phylum || '0'),
+        dark_matter_counts: darkMatterCounts,
       },
       tier2: {
         clusters: parseInt(tier2Summary.rows[0]?.clusters || '0'),
@@ -145,37 +189,83 @@ export async function GET(request: NextRequest) {
 
     // Tier-specific queries
     if (tier === 1) {
-      // Tier 1: Use v_novel_fold_cluster_summary
+      // Tier 1: Use v_novel_fold_cluster_summary + dark matter class from PXC mapping
+      // CTE maps each T1 cluster to its most-novel dark_matter_class
+      const t1DmCte = `
+        t1_dark_matter AS (
+          SELECT
+            nfc.cluster_id AS t1_cluster_id,
+            CASE MIN(CASE dm.dark_matter_class
+              WHEN 'GENUINE_DARK' THEN 1
+              WHEN 'TOO_SHORT' THEN 2
+              WHEN 'LOW_CONFIDENCE_STRUCTURE' THEN 3
+              WHEN 'SUB_THRESHOLD' THEN 4
+              WHEN 'RESCUE' THEN 5
+              WHEN 'CLASSIFIED' THEN 6
+              ELSE 1
+            END)
+              WHEN 1 THEN 'GENUINE_DARK'
+              WHEN 2 THEN 'TOO_SHORT'
+              WHEN 3 THEN 'LOW_CONFIDENCE_STRUCTURE'
+              WHEN 4 THEN 'SUB_THRESHOLD'
+              WHEN 5 THEN 'RESCUE'
+              WHEN 6 THEN 'CLASSIFIED'
+            END AS dark_matter_class
+          FROM (SELECT DISTINCT cluster_id, protein_id FROM archaea.novel_fold_clusters) nfc
+          LEFT JOIN archaea.protein_struct_clusters psc ON psc.protein_id = nfc.protein_id
+          LEFT JOIN archaea.v_pxc_dark_matter_class dm ON dm.cluster_id = psc.cluster_id
+          GROUP BY nfc.cluster_id
+        )
+      `;
+
       const conditions: string[] = [];
       const params: (string | number)[] = [];
       let paramIdx = 1;
 
       if (minSize > 1) {
-        conditions.push(`cluster_size >= $${paramIdx++}`);
+        conditions.push(`s.cluster_size >= $${paramIdx++}`);
         params.push(minSize);
       }
       if (crossPhylum === 'true') {
-        conditions.push(`cross_phylum = true`);
+        conditions.push(`s.cross_phylum = true`);
       } else if (crossPhylum === 'false') {
-        conditions.push(`cross_phylum = false`);
+        conditions.push(`s.cross_phylum = false`);
       }
       if (phylum) {
-        conditions.push(`phyla ILIKE $${paramIdx++}`);
+        conditions.push(`s.phyla ILIKE $${paramIdx++}`);
         params.push(`%${phylum}%`);
+      }
+      if (darkMatterClass && darkMatterClass !== 'all') {
+        conditions.push(`tdm.dark_matter_class = $${paramIdx++}`);
+        params.push(darkMatterClass);
       }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+      const baseSelect = `
+        WITH ${t1DmCte}
+        SELECT s.*, tdm.dark_matter_class
+        FROM archaea.v_novel_fold_cluster_summary s
+        LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
+        ${whereClause}
+      `;
+
+      const countSelect = `
+        WITH ${t1DmCte}
+        SELECT COUNT(*) AS total
+        FROM archaea.v_novel_fold_cluster_summary s
+        LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
+        ${whereClause}
+      `;
+
+      // Map sort column to qualified name for the joined query
+      const qualifiedSort = sortColumn === 'dark_matter_class' ? 'tdm.dark_matter_class' : `s.${sortColumn}`;
+
       const [countResult, dataResult] = await Promise.all([
-        query<{ total: string }>(
-          `SELECT COUNT(*) AS total FROM archaea.v_novel_fold_cluster_summary ${whereClause}`,
-          params
-        ),
+        query<{ total: string }>(countSelect, params),
         query(
-          `SELECT *
-           FROM archaea.v_novel_fold_cluster_summary
-           ${whereClause}
-           ORDER BY ${sortColumn} ${sortOrder} NULLS LAST
+          `${baseSelect}
+           ORDER BY ${qualifiedSort} ${sortOrder} NULLS LAST
            LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
           [...params, limit, offset]
         ),
