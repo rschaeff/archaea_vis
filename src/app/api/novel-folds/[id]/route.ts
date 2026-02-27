@@ -44,7 +44,7 @@ export async function GET(
 }
 
 async function handleTier1(clusterId: string) {
-  const [clusterResult, membersResult, edgesResult, phylumResult, crossTierResult, darkMatterResult] =
+  const [clusterResult, membersResult, edgesResult, phylumResult, crossTierResult, darkMatterResult, ssResult] =
     await Promise.all([
       // Cluster summary from view
       query(`
@@ -144,6 +144,16 @@ async function handleTier1(clusterId: string) {
         LEFT JOIN archaea.v_pxc_dark_matter_class dm ON dm.cluster_id = psc.cluster_id
         WHERE nfc.cluster_id = $1
       `, [clusterId]),
+
+      // Secondary structure: is this cluster all-helix?
+      query<{ all_helix: boolean; max_helix_fraction: string }>(`
+        SELECT
+          BOOL_AND(sqm.ss_category = 'all_helix') AS all_helix,
+          MAX(sqm.helix_fraction) AS max_helix_fraction
+        FROM archaea.novel_fold_clusters nfc
+        JOIN archaea.structure_quality_metrics sqm ON sqm.protein_id = nfc.db_protein_id
+        WHERE nfc.cluster_id = $1
+      `, [clusterId]),
     ]);
 
   if (clusterResult.rows.length === 0) {
@@ -155,6 +165,7 @@ async function handleTier1(clusterId: string) {
 
   const cluster = clusterResult.rows[0];
   const dmClass = darkMatterResult.rows[0]?.dark_matter_class || null;
+  const allHelix = ssResult.rows[0]?.all_helix ?? false;
 
   return NextResponse.json({
     tier: 1,
@@ -164,6 +175,7 @@ async function handleTier1(clusterId: string) {
       min_plddt: cluster.min_plddt ? parseFloat(String(cluster.min_plddt)) : null,
       max_plddt: cluster.max_plddt ? parseFloat(String(cluster.max_plddt)) : null,
       dark_matter_class: dmClass,
+      all_helix: allHelix,
     },
     members: membersResult.rows.map(m => ({
       ...m,

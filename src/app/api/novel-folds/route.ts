@@ -58,6 +58,7 @@ export async function GET(request: NextRequest) {
     const phylum = searchParams.get('phylum');
     const lddtClass = searchParams.get('lddt_class');
     const darkMatterClass = searchParams.get('dark_matter_class');
+    const excludeHelix = searchParams.get('exclude_helix');
 
     // Overview stats — always fetched for both tiers
     const [tier1Summary, tier2Summary, crossTierCount, tier2CrossPhylum5Plus, tier2LddtCounts, tier1DarkMatterCounts] = await Promise.all([
@@ -215,6 +216,15 @@ export async function GET(request: NextRequest) {
           LEFT JOIN archaea.protein_struct_clusters psc ON psc.protein_id = nfc.protein_id
           LEFT JOIN archaea.v_pxc_dark_matter_class dm ON dm.cluster_id = psc.cluster_id
           GROUP BY nfc.cluster_id
+        ),
+        t1_secondary_structure AS (
+          SELECT
+            nfc.cluster_id AS t1_cluster_id,
+            BOOL_AND(sqm.ss_category = 'all_helix') AS all_helix,
+            MAX(sqm.helix_fraction) AS max_helix_fraction
+          FROM archaea.novel_fold_clusters nfc
+          JOIN archaea.structure_quality_metrics sqm ON sqm.protein_id = nfc.db_protein_id
+          GROUP BY nfc.cluster_id
         )
       `;
 
@@ -239,14 +249,18 @@ export async function GET(request: NextRequest) {
         conditions.push(`tdm.dark_matter_class = $${paramIdx++}`);
         params.push(darkMatterClass);
       }
+      if (excludeHelix === 'true') {
+        conditions.push(`COALESCE(tss.all_helix, false) = false`);
+      }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       const baseSelect = `
         WITH ${t1DmCte}
-        SELECT s.*, tdm.dark_matter_class
+        SELECT s.*, tdm.dark_matter_class, COALESCE(tss.all_helix, false) AS all_helix, tss.max_helix_fraction
         FROM archaea.v_novel_fold_cluster_summary s
         LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
+        LEFT JOIN t1_secondary_structure tss ON tss.t1_cluster_id = s.cluster_id
         ${whereClause}
       `;
 
@@ -255,6 +269,7 @@ export async function GET(request: NextRequest) {
         SELECT COUNT(*) AS total
         FROM archaea.v_novel_fold_cluster_summary s
         LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
+        LEFT JOIN t1_secondary_structure tss ON tss.t1_cluster_id = s.cluster_id
         ${whereClause}
       `;
 

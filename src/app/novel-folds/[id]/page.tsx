@@ -24,6 +24,7 @@ interface Tier1Cluster {
   phyla: string;
   genome_count: number;
   dark_matter_class: string | null;
+  all_helix: boolean;
 }
 
 interface Tier1Member {
@@ -202,6 +203,11 @@ export default function NovelFoldDetailPage() {
             {isTier1 && (cluster as Tier1Cluster).dark_matter_class && (
               <span className={`px-2.5 py-1 rounded text-xs font-semibold ${darkMatterClassColor((cluster as Tier1Cluster).dark_matter_class)}`}>
                 {darkMatterClassLabel((cluster as Tier1Cluster).dark_matter_class)}
+              </span>
+            )}
+            {isTier1 && (cluster as Tier1Cluster).all_helix && (
+              <span className="px-2.5 py-1 rounded text-xs font-semibold bg-pink-100 text-pink-700">
+                Single Helix
               </span>
             )}
             {!isTier1 && (cluster as Tier2Cluster).lddt_classification && (

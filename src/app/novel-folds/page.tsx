@@ -27,6 +27,7 @@ interface Tier1Row {
   phyla: string;
   genome_count: number;
   dark_matter_class: string | null;
+  all_helix: boolean;
 }
 
 interface Tier2Row {
@@ -65,6 +66,7 @@ export default function NovelFoldBrowser() {
   const [phylum, setPhylum] = useState('');
   const [lddtClass, setLddtClass] = useState('');
   const [darkMatterClassFilter, setDarkMatterClassFilter] = useState('');
+  const [excludeHelix, setExcludeHelix] = useState(false);
   const [sort, setSort] = useState('cluster_size');
   const [order, setOrder] = useState('DESC');
   const [offset, setOffset] = useState(0);
@@ -85,6 +87,7 @@ export default function NovelFoldBrowser() {
     if (phylum) params.set('phylum', phylum);
     if (lddtClass && tier === 2) params.set('lddt_class', lddtClass);
     if (darkMatterClassFilter && tier === 1) params.set('dark_matter_class', darkMatterClassFilter);
+    if (excludeHelix && tier === 1) params.set('exclude_helix', 'true');
 
     try {
       const res = await fetch(`/api/novel-folds?${params.toString()}`);
@@ -95,7 +98,7 @@ export default function NovelFoldBrowser() {
     } finally {
       setLoading(false);
     }
-  }, [tier, minSize, crossPhylum, phylum, lddtClass, darkMatterClassFilter, sort, order, offset]);
+  }, [tier, minSize, crossPhylum, phylum, lddtClass, darkMatterClassFilter, excludeHelix, sort, order, offset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -109,6 +112,7 @@ export default function NovelFoldBrowser() {
     setPhylum('');
     setLddtClass('');
     setDarkMatterClassFilter('');
+    setExcludeHelix(false);
   };
 
   const handleSort = (column: string) => {
@@ -323,9 +327,20 @@ export default function NovelFoldBrowser() {
               </select>
             </div>
           )}
-          <div className="flex items-end">
+          <div className="flex items-end gap-3">
+            {tier === 1 && (
+              <label className="flex items-center gap-1.5 text-sm text-gray-600 pb-1 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  checked={excludeHelix}
+                  onChange={e => { setExcludeHelix(e.target.checked); setOffset(0); }}
+                  className="rounded border-gray-300"
+                />
+                Hide single-helix
+              </label>
+            )}
             <button
-              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setLddtClass(''); setDarkMatterClassFilter(''); setOffset(0); }}
+              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setLddtClass(''); setDarkMatterClassFilter(''); setExcludeHelix(false); setOffset(0); }}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
             >
               Reset
@@ -375,6 +390,9 @@ export default function NovelFoldBrowser() {
                         <Link href={`/novel-folds/${c.cluster_id}`} target="_blank" className="text-blue-600 hover:text-blue-800 font-mono">
                           {c.cluster_id}
                         </Link>
+                        {c.all_helix && (
+                          <span className="ml-1.5 px-1 py-0.5 rounded text-[10px] font-medium bg-pink-100 text-pink-700" title="All members are single-helix structures">helix</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.cluster_size}</td>
                       <td className="px-3 py-2 text-sm text-center">
