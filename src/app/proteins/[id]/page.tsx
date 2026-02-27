@@ -107,7 +107,43 @@ export default function ProteinDetailPage() {
               </a>
             )}
             {protein.uniparc_id && (
-              <span className="text-sm text-gray-600">UniParc: {protein.uniparc_id}</span>
+              <a
+                href={`https://www.uniprot.org/uniparc/${protein.uniparc_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 text-sm"
+              >
+                UniParc: {protein.uniparc_id}
+              </a>
+            )}
+            {protein.uniprot_acc ? (
+              <a
+                href={`https://www.ebi.ac.uk/interpro/protein/UniProt/${protein.uniprot_acc}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 text-sm"
+              >
+                InterPro
+              </a>
+            ) : protein.uniparc_id ? (
+              <a
+                href={`https://www.ebi.ac.uk/interpro/protein/UniParc/${protein.uniparc_id}/`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 text-sm"
+              >
+                InterPro
+              </a>
+            ) : null}
+            {protein.uniprot_acc && (
+              <a
+                href={`https://ted.cathdb.info/uniprot/${protein.uniprot_acc}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:text-blue-800 text-sm"
+              >
+                TED
+              </a>
             )}
             <span className="text-sm text-gray-600">{protein.sequence_length} residues</span>
             {protein.has_structure && (
