@@ -220,7 +220,7 @@ export async function GET(request: NextRequest) {
         t1_secondary_structure AS (
           SELECT
             nfc.cluster_id AS t1_cluster_id,
-            BOOL_AND(sqm.ss_category = 'all_helix') AS all_helix,
+            BOOL_AND(sqm.helix_fraction >= 0.70 AND sqm.rg_category = 'extended') AS all_helix,
             MAX(sqm.helix_fraction) AS max_helix_fraction
           FROM archaea.novel_fold_clusters nfc
           JOIN archaea.structure_quality_metrics sqm ON sqm.protein_id = nfc.db_protein_id

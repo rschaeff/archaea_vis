@@ -145,10 +145,11 @@ async function handleTier1(clusterId: string) {
         WHERE nfc.cluster_id = $1
       `, [clusterId]),
 
-      // Secondary structure: is this cluster all-helix?
+      // Secondary structure: is this cluster a single extended helix?
+      // Uses helix_fraction >= 0.70 AND extended Rg to distinguish single helices from helix bundles
       query<{ all_helix: boolean; max_helix_fraction: string }>(`
         SELECT
-          BOOL_AND(sqm.ss_category = 'all_helix') AS all_helix,
+          BOOL_AND(sqm.helix_fraction >= 0.70 AND sqm.rg_category = 'extended') AS all_helix,
           MAX(sqm.helix_fraction) AS max_helix_fraction
         FROM archaea.novel_fold_clusters nfc
         JOIN archaea.structure_quality_metrics sqm ON sqm.protein_id = nfc.db_protein_id
