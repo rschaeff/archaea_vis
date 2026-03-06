@@ -169,3 +169,36 @@ export function darkMatterClassLabel(cls: string | null): string {
     default: return '-';
   }
 }
+
+/**
+ * DALI Z-score confidence tier label.
+ */
+export function daliZscoreLabel(z: number | null): string {
+  if (z == null) return 'Not Searched';
+  if (z >= 8) return 'Known Fold';
+  if (z >= 4) return 'Partial Match';
+  if (z >= 2) return 'Weak Match';
+  return 'No Hits';
+}
+
+/**
+ * DALI Z-score confidence tier color.
+ */
+export function daliZscoreColor(z: number | null): string {
+  if (z == null) return 'bg-gray-100 text-gray-500';
+  if (z >= 8) return 'bg-blue-100 text-blue-800';
+  if (z >= 4) return 'bg-yellow-100 text-yellow-800';
+  if (z >= 2) return 'bg-orange-100 text-orange-800';
+  return 'bg-indigo-100 text-indigo-800';
+}
+
+/**
+ * DALI filter category from Z-score.
+ */
+export function daliZscoreCategory(z: number | null): string {
+  if (z == null) return 'not_searched';
+  if (z >= 8) return 'strong';
+  if (z >= 4) return 'moderate';
+  if (z >= 2) return 'weak';
+  return 'no_hits';
+}

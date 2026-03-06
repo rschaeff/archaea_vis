@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import StatCard from '@/components/StatCard';
 import Pagination from '@/components/Pagination';
-import { lddtClassColor, lddtClassLabel, darkMatterClassColor, darkMatterClassLabel } from '@/lib/utils';
+import { lddtClassColor, lddtClassLabel, darkMatterClassColor, darkMatterClassLabel, daliZscoreColor, daliZscoreLabel } from '@/lib/utils';
 
 interface Overview {
   tier1: { clusters: number; proteins: number; multi_member: number; cross_phylum: number; dark_matter_counts: Record<string, number> };
@@ -28,6 +28,11 @@ interface Tier1Row {
   genome_count: number;
   dark_matter_class: string | null;
   all_helix: boolean;
+  dali_best_zscore: number | null;
+  dali_hit_count: number;
+  dali_best_hit: string | null;
+  dali_best_library: string | null;
+  dali_searched: boolean;
 }
 
 interface Tier2Row {
@@ -67,6 +72,7 @@ export default function NovelFoldBrowser() {
   const [lddtClass, setLddtClass] = useState('');
   const [darkMatterClassFilter, setDarkMatterClassFilter] = useState('');
   const [excludeHelix, setExcludeHelix] = useState(false);
+  const [daliFilter, setDaliFilter] = useState('');
   const [sort, setSort] = useState('cluster_size');
   const [order, setOrder] = useState('DESC');
   const [offset, setOffset] = useState(0);
@@ -88,6 +94,7 @@ export default function NovelFoldBrowser() {
     if (lddtClass && tier === 2) params.set('lddt_class', lddtClass);
     if (darkMatterClassFilter && tier === 1) params.set('dark_matter_class', darkMatterClassFilter);
     if (excludeHelix && tier === 1) params.set('exclude_helix', 'true');
+    if (daliFilter && tier === 1) params.set('dali_filter', daliFilter);
 
     try {
       const res = await fetch(`/api/novel-folds?${params.toString()}`);
@@ -98,7 +105,7 @@ export default function NovelFoldBrowser() {
     } finally {
       setLoading(false);
     }
-  }, [tier, minSize, crossPhylum, phylum, lddtClass, darkMatterClassFilter, excludeHelix, sort, order, offset]);
+  }, [tier, minSize, crossPhylum, phylum, lddtClass, darkMatterClassFilter, excludeHelix, daliFilter, sort, order, offset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -113,6 +120,7 @@ export default function NovelFoldBrowser() {
     setLddtClass('');
     setDarkMatterClassFilter('');
     setExcludeHelix(false);
+    setDaliFilter('');
   };
 
   const handleSort = (column: string) => {
@@ -311,6 +319,23 @@ export default function NovelFoldBrowser() {
               </select>
             </div>
           )}
+          {tier === 1 && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">DALI Result</label>
+              <select
+                value={daliFilter}
+                onChange={e => { setDaliFilter(e.target.value); setOffset(0); }}
+                className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm"
+              >
+                <option value="">All</option>
+                <option value="strong">Strong (Z&ge;8)</option>
+                <option value="moderate">Moderate (4-8)</option>
+                <option value="weak">Weak (2-4)</option>
+                <option value="no_hits">No Hits</option>
+                <option value="not_searched">Not Searched</option>
+              </select>
+            </div>
+          )}
           {tier === 2 && (
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">LDDT Tier</label>
@@ -340,7 +365,7 @@ export default function NovelFoldBrowser() {
               </label>
             )}
             <button
-              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setLddtClass(''); setDarkMatterClassFilter(''); setExcludeHelix(false); setOffset(0); }}
+              onClick={() => { setMinSize('1'); setCrossPhylum(''); setPhylum(''); setLddtClass(''); setDarkMatterClassFilter(''); setExcludeHelix(false); setDaliFilter(''); setOffset(0); }}
               className="px-3 py-1.5 text-sm border border-gray-300 rounded hover:bg-gray-50"
             >
               Reset
@@ -366,6 +391,7 @@ export default function NovelFoldBrowser() {
                   <SortHeader column="cluster_size" label="Size" />
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cross-phylum</th>
                   <SortHeader column="dark_matter_class" label="DM Class" />
+                  <SortHeader column="dali_best_zscore" label="DALI Best Z" />
                   <SortHeader column="avg_plddt" label="Avg pLDDT" />
                   <SortHeader column="phylum_count" label="Phyla" />
                   <SortHeader column="genome_count" label="Genomes" />
@@ -376,13 +402,13 @@ export default function NovelFoldBrowser() {
                 {loading ? (
                   Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: 9 }).map((_, j) => (
                         <td key={j} className="px-3 py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
                       ))}
                     </tr>
                   ))
                 ) : data?.items.length === 0 ? (
-                  <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
+                  <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
                 ) : (
                   (data?.items as Tier1Row[])?.map(c => (
                     <tr key={c.cluster_id} className="hover:bg-gray-50">
@@ -409,6 +435,22 @@ export default function NovelFoldBrowser() {
                           </span>
                         ) : (
                           <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-sm">
+                        {c.dali_searched ? (
+                          c.dali_best_zscore != null ? (
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${daliZscoreColor(c.dali_best_zscore)}`}>
+                              Z={c.dali_best_zscore.toFixed(1)}
+                              <span className="ml-1 opacity-75">({c.dali_hit_count})</span>
+                            </span>
+                          ) : (
+                            <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${daliZscoreColor(0)}`}>
+                              No hits
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-gray-400 text-xs">-</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.avg_plddt?.toFixed(1) || '-'}</td>

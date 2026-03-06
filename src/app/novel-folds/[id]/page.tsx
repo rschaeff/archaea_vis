@@ -10,7 +10,7 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import ProgressBar from '@/components/ProgressBar';
-import { lddtClassColor, lddtClassLabel, darkMatterClassColor, darkMatterClassLabel } from '@/lib/utils';
+import { lddtClassColor, lddtClassLabel, darkMatterClassColor, darkMatterClassLabel, daliZscoreColor, daliZscoreLabel } from '@/lib/utils';
 
 // Tier 1 types
 interface Tier1Cluster {
@@ -127,6 +127,24 @@ interface XgroupSuggestion {
   max_lddt: number;
 }
 
+interface DaliHit {
+  hit_cd2: string;
+  zscore: number;
+  rmsd: number | null;
+  nblock: number | null;
+  round: number | null;
+  ecod_h_group: string | null;
+  ecod_x_group_name: string | null;
+}
+
+interface DaliSearch {
+  job_id: string;
+  library_type: string;
+  query_protein_id: string;
+  status: string;
+  hits: DaliHit[];
+}
+
 interface DetailData {
   tier: number;
   cluster: Tier1Cluster | Tier2Cluster;
@@ -136,6 +154,7 @@ interface DetailData {
   cross_tier_hits: CrossTierHit[];
   lddt_distribution?: LddtBucket[];
   xgroup_suggestions?: XgroupSuggestion[];
+  dali_searches?: DaliSearch[];
 }
 
 export default function NovelFoldDetailPage() {
@@ -183,7 +202,7 @@ export default function NovelFoldDetailPage() {
     );
   }
 
-  const { tier, cluster, members, edges, phylum_distribution, cross_tier_hits, lddt_distribution, xgroup_suggestions } = data;
+  const { tier, cluster, members, edges, phylum_distribution, cross_tier_hits, lddt_distribution, xgroup_suggestions, dali_searches } = data;
   const isTier1 = tier === 1;
 
   return (
@@ -210,6 +229,17 @@ export default function NovelFoldDetailPage() {
                 Single Helix
               </span>
             )}
+            {isTier1 && dali_searches && dali_searches.length > 0 && (() => {
+              const allHits = dali_searches.flatMap(s => s.hits);
+              const bestZ = allHits.length > 0 ? Math.max(...allHits.map(h => h.zscore)) : null;
+              const searched = dali_searches.some(s => s.status === 'completed');
+              if (!searched) return null;
+              return (
+                <span className={`px-2.5 py-1 rounded text-xs font-semibold ${daliZscoreColor(bestZ != null ? bestZ : 0)}`}>
+                  DALI: {bestZ != null ? `${daliZscoreLabel(bestZ)} (Z=${bestZ.toFixed(1)})` : 'No Hits'}
+                </span>
+              );
+            })()}
             {!isTier1 && (cluster as Tier2Cluster).lddt_classification && (
               <span className={`px-2.5 py-1 rounded text-xs font-semibold ${lddtClassColor((cluster as Tier2Cluster).lddt_classification)}`}>
                 LDDT: {lddtClassLabel((cluster as Tier2Cluster).lddt_classification)}
@@ -510,6 +540,119 @@ export default function NovelFoldDetailPage() {
               </table>
             )}
           </div>
+        </div>
+      )}
+
+      {/* DALI Search Results (Tier 1 only) */}
+      {isTier1 && dali_searches && dali_searches.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-gray-200 bg-indigo-50">
+            <h3 className="font-semibold text-indigo-900">
+              DALI Structural Search Results
+            </h3>
+            <p className="text-xs text-indigo-600 mt-0.5">
+              Structural search against PDB chain (~27K) and ECOD domain (~25K) libraries
+            </p>
+          </div>
+          {dali_searches.map(search => (
+            <div key={search.job_id}>
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-3 text-xs text-gray-500">
+                <span>Library: <span className="font-medium text-gray-700 uppercase">{search.library_type}</span></span>
+                <span>&middot;</span>
+                <span>Status: <span className={`font-medium ${
+                  search.status === 'completed' ? 'text-green-700' :
+                  search.status === 'running' ? 'text-blue-700' :
+                  search.status === 'failed' ? 'text-red-700' :
+                  'text-gray-700'
+                }`}>{search.status}</span></span>
+                {search.hits.length > 0 && (
+                  <>
+                    <span>&middot;</span>
+                    <span>{search.hits.length} hits</span>
+                    <span>&middot;</span>
+                    <span>Top Z-score: <span className="font-medium text-gray-700">{search.hits[0].zscore.toFixed(1)}</span></span>
+                  </>
+                )}
+              </div>
+              {search.status === 'completed' && search.hits.length === 0 && (
+                <div className="px-4 py-6 text-center text-sm text-gray-500">
+                  No structural hits found (Z &ge; 2.0)
+                </div>
+              )}
+              {search.hits.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Hit</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Z-score</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">RMSD</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Blocks</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Classification</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Round</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {search.hits.slice(0, 20).map((h, i) => {
+                        const zColor = h.zscore >= 8 ? 'text-green-700 font-semibold'
+                          : h.zscore >= 4 ? 'text-yellow-700'
+                          : 'text-gray-700';
+                        const isEcod = h.hit_cd2.startsWith('e');
+                        const pdbCode = isEcod ? null : h.hit_cd2.substring(0, 4);
+                        return (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-sm font-mono">
+                              {isEcod ? (
+                                <a
+                                  href={`http://prodata.swmed.edu/ecod/af/${h.hit_cd2}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800"
+                                  title="View in ECOD"
+                                >
+                                  {h.hit_cd2} <span className="text-[10px]">&#8599;</span>
+                                </a>
+                              ) : (
+                                <a
+                                  href={`https://www.rcsb.org/structure/${pdbCode}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800"
+                                  title="View in RCSB PDB"
+                                >
+                                  {h.hit_cd2} <span className="text-[10px]">&#8599;</span>
+                                </a>
+                              )}
+                            </td>
+                            <td className={`px-3 py-2 text-sm text-right ${zColor}`}>{h.zscore.toFixed(1)}</td>
+                            <td className="px-3 py-2 text-sm text-right text-gray-600">{h.rmsd != null && h.rmsd !== 9.9 ? h.rmsd.toFixed(1) : '-'}</td>
+                            <td className="px-3 py-2 text-sm text-right text-gray-600">{h.nblock || '-'}</td>
+                            <td className="px-3 py-2 text-sm text-gray-600 max-w-[250px] truncate" title={h.ecod_x_group_name || undefined}>
+                              {h.ecod_x_group_name ? (
+                                <span>
+                                  <span className="text-gray-400 text-xs font-mono">{h.ecod_h_group}</span>
+                                  {' '}
+                                  {h.ecod_x_group_name}
+                                </span>
+                              ) : (
+                                <span className="text-gray-400">-</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-sm text-right text-gray-600">{h.round ?? '-'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {search.hits.length > 20 && (
+                    <div className="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-t border-gray-100">
+                      Showing top 20 of {search.hits.length} hits
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

@@ -18,6 +18,7 @@ const TIER1_SORT_COLUMNS = [
   'cluster_id',
   'genome_count',
   'dark_matter_class',
+  'dali_best_zscore',
 ];
 
 const TIER2_SORT_COLUMNS = [
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
     const lddtClass = searchParams.get('lddt_class');
     const darkMatterClass = searchParams.get('dark_matter_class');
     const excludeHelix = searchParams.get('exclude_helix');
+    const daliFilter = searchParams.get('dali_filter');
 
     // Overview stats — always fetched for both tiers
     const [tier1Summary, tier2Summary, crossTierCount, tier2CrossPhylum5Plus, tier2LddtCounts, tier1DarkMatterCounts] = await Promise.all([
@@ -225,6 +227,19 @@ export async function GET(request: NextRequest) {
           FROM archaea.novel_fold_clusters nfc
           JOIN archaea.structure_quality_metrics sqm ON sqm.protein_id = nfc.db_protein_id
           GROUP BY nfc.cluster_id
+        ),
+        t1_dali_summary AS (
+          SELECT
+            djm.cluster_id AS t1_cluster_id,
+            MAX(r.zscore) AS dali_best_zscore,
+            COUNT(r.id) AS dali_hit_count,
+            (array_agg(r.hit_cd2 ORDER BY r.zscore DESC))[1] AS dali_best_hit,
+            (array_agg(djm.library_type ORDER BY r.zscore DESC))[1] AS dali_best_library,
+            bool_or(j.status = 'completed') AS dali_searched
+          FROM archaea.dali_job_mapping djm
+          JOIN rustdali.jobs j ON j.id = djm.dali_job_id
+          LEFT JOIN rustdali.results r ON r.job_id = j.id
+          GROUP BY djm.cluster_id
         )
       `;
 
@@ -252,15 +267,36 @@ export async function GET(request: NextRequest) {
       if (excludeHelix === 'true') {
         conditions.push(`COALESCE(tss.all_helix, false) = false`);
       }
+      if (daliFilter && daliFilter !== 'all') {
+        switch (daliFilter) {
+          case 'strong':
+            conditions.push(`tds.dali_best_zscore >= 8`);
+            break;
+          case 'moderate':
+            conditions.push(`tds.dali_best_zscore >= 4 AND tds.dali_best_zscore < 8`);
+            break;
+          case 'weak':
+            conditions.push(`tds.dali_best_zscore >= 2 AND tds.dali_best_zscore < 4`);
+            break;
+          case 'no_hits':
+            conditions.push(`tds.dali_searched = true AND (tds.dali_best_zscore IS NULL OR tds.dali_hit_count = 0)`);
+            break;
+          case 'not_searched':
+            conditions.push(`tds.dali_searched IS NULL`);
+            break;
+        }
+      }
 
       const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       const baseSelect = `
         WITH ${t1DmCte}
-        SELECT s.*, tdm.dark_matter_class, COALESCE(tss.all_helix, false) AS all_helix, tss.max_helix_fraction
+        SELECT s.*, tdm.dark_matter_class, COALESCE(tss.all_helix, false) AS all_helix, tss.max_helix_fraction,
+               tds.dali_best_zscore, tds.dali_hit_count, tds.dali_best_hit, tds.dali_best_library, tds.dali_searched
         FROM archaea.v_novel_fold_cluster_summary s
         LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
         LEFT JOIN t1_secondary_structure tss ON tss.t1_cluster_id = s.cluster_id
+        LEFT JOIN t1_dali_summary tds ON tds.t1_cluster_id = s.cluster_id
         ${whereClause}
       `;
 
@@ -270,11 +306,14 @@ export async function GET(request: NextRequest) {
         FROM archaea.v_novel_fold_cluster_summary s
         LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
         LEFT JOIN t1_secondary_structure tss ON tss.t1_cluster_id = s.cluster_id
+        LEFT JOIN t1_dali_summary tds ON tds.t1_cluster_id = s.cluster_id
         ${whereClause}
       `;
 
       // Map sort column to qualified name for the joined query
-      const qualifiedSort = sortColumn === 'dark_matter_class' ? 'tdm.dark_matter_class' : `s.${sortColumn}`;
+      const qualifiedSort = sortColumn === 'dark_matter_class' ? 'tdm.dark_matter_class'
+        : sortColumn === 'dali_best_zscore' ? 'tds.dali_best_zscore'
+        : `s.${sortColumn}`;
 
       const [countResult, dataResult] = await Promise.all([
         query<{ total: string }>(countSelect, params),
@@ -294,6 +333,11 @@ export async function GET(request: NextRequest) {
           avg_plddt: c.avg_plddt ? parseFloat(String(c.avg_plddt)) : null,
           min_plddt: c.min_plddt ? parseFloat(String(c.min_plddt)) : null,
           max_plddt: c.max_plddt ? parseFloat(String(c.max_plddt)) : null,
+          dali_best_zscore: c.dali_best_zscore ? parseFloat(String(c.dali_best_zscore)) : null,
+          dali_hit_count: c.dali_hit_count ? parseInt(String(c.dali_hit_count)) : 0,
+          dali_best_hit: c.dali_best_hit || null,
+          dali_best_library: c.dali_best_library || null,
+          dali_searched: c.dali_searched ?? false,
         })),
         total: parseInt(countResult.rows[0]?.total || '0'),
         limit,

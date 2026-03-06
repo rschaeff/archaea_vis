@@ -44,7 +44,7 @@ export async function GET(
 }
 
 async function handleTier1(clusterId: string) {
-  const [clusterResult, membersResult, edgesResult, phylumResult, crossTierResult, darkMatterResult, ssResult] =
+  const [clusterResult, membersResult, edgesResult, phylumResult, crossTierResult, darkMatterResult, ssResult, daliResult] =
     await Promise.all([
       // Cluster summary from view
       query(`
@@ -155,6 +155,29 @@ async function handleTier1(clusterId: string) {
         JOIN archaea.structure_quality_metrics sqm ON sqm.protein_id = nfc.db_protein_id
         WHERE nfc.cluster_id = $1
       `, [clusterId]),
+
+      // DALI search results via dali_job_mapping, with ECOD classification for domain hits
+      query(`
+        SELECT
+          djm.library_type,
+          djm.protein_id AS query_protein_id,
+          j.status AS job_status,
+          j.id AS job_id,
+          r.hit_cd2,
+          r.zscore,
+          r.rmsd,
+          r.nblock,
+          r.round,
+          ds.h_group_id AS ecod_h_group,
+          c.name AS ecod_x_group_name
+        FROM archaea.dali_job_mapping djm
+        JOIN rustdali.jobs j ON j.id = djm.dali_job_id
+        LEFT JOIN rustdali.results r ON r.job_id = j.id
+        LEFT JOIN ecod_commons.domain_summary ds ON ds.domain_id = r.hit_cd2
+        LEFT JOIN ecod_rep.cluster c ON c.id = SPLIT_PART(ds.h_group_id, '.', 1)
+        WHERE djm.cluster_id = $1
+        ORDER BY r.zscore DESC NULLS LAST
+      `, [clusterId]),
     ]);
 
   if (clusterResult.rows.length === 0) {
@@ -199,7 +222,66 @@ async function handleTier1(clusterId: string) {
       evalue: r.evalue ? parseFloat(String(r.evalue)) : null,
       alntmscore: r.alntmscore ? parseFloat(String(r.alntmscore)) : null,
     })),
+    dali_searches: buildDaliSearches(daliResult.rows),
   });
+}
+
+interface DaliRow {
+  library_type: string;
+  query_protein_id: string;
+  job_status: string;
+  job_id: string;
+  hit_cd2: string | null;
+  zscore: number | null;
+  rmsd: number | null;
+  nblock: number | null;
+  round: number | null;
+  ecod_h_group: string | null;
+  ecod_x_group_name: string | null;
+}
+
+function buildDaliSearches(rows: DaliRow[]) {
+  // Group by job_id to handle multiple results per job
+  const jobMap = new Map<string, {
+    job_id: string;
+    library_type: string;
+    query_protein_id: string;
+    status: string;
+    hits: {
+      hit_cd2: string;
+      zscore: number;
+      rmsd: number | null;
+      nblock: number | null;
+      round: number | null;
+      ecod_h_group: string | null;
+      ecod_x_group_name: string | null;
+    }[];
+  }>();
+
+  for (const r of rows) {
+    if (!jobMap.has(r.job_id)) {
+      jobMap.set(r.job_id, {
+        job_id: r.job_id,
+        library_type: r.library_type,
+        query_protein_id: r.query_protein_id,
+        status: r.job_status,
+        hits: [],
+      });
+    }
+    if (r.hit_cd2 && r.zscore != null) {
+      jobMap.get(r.job_id)!.hits.push({
+        hit_cd2: r.hit_cd2,
+        zscore: parseFloat(String(r.zscore)),
+        rmsd: r.rmsd ? parseFloat(String(r.rmsd)) : null,
+        nblock: r.nblock,
+        round: r.round,
+        ecod_h_group: r.ecod_h_group || null,
+        ecod_x_group_name: r.ecod_x_group_name || null,
+      });
+    }
+  }
+
+  return Array.from(jobMap.values());
 }
 
 async function handleTier2(clusterId: string) {
