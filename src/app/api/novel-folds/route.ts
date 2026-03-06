@@ -19,6 +19,7 @@ const TIER1_SORT_COLUMNS = [
   'genome_count',
   'dark_matter_class',
   'dali_best_zscore',
+  'avg_neff',
 ];
 
 const TIER2_SORT_COLUMNS = [
@@ -240,6 +241,12 @@ export async function GET(request: NextRequest) {
           JOIN rustdali.jobs j ON j.id = djm.dali_job_id
           LEFT JOIN rustdali.results r ON r.job_id = j.id
           GROUP BY djm.cluster_id
+        ),
+        t1_neff AS (
+          SELECT cluster_id AS t1_cluster_id, AVG(neff) AS avg_neff
+          FROM archaea.novel_fold_clusters
+          WHERE neff IS NOT NULL
+          GROUP BY cluster_id
         )
       `;
 
@@ -292,11 +299,13 @@ export async function GET(request: NextRequest) {
       const baseSelect = `
         WITH ${t1DmCte}
         SELECT s.*, tdm.dark_matter_class, COALESCE(tss.all_helix, false) AS all_helix, tss.max_helix_fraction,
-               tds.dali_best_zscore, tds.dali_hit_count, tds.dali_best_hit, tds.dali_best_library, tds.dali_searched
+               tds.dali_best_zscore, tds.dali_hit_count, tds.dali_best_hit, tds.dali_best_library, tds.dali_searched,
+               tn.avg_neff
         FROM archaea.v_novel_fold_cluster_summary s
         LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
         LEFT JOIN t1_secondary_structure tss ON tss.t1_cluster_id = s.cluster_id
         LEFT JOIN t1_dali_summary tds ON tds.t1_cluster_id = s.cluster_id
+        LEFT JOIN t1_neff tn ON tn.t1_cluster_id = s.cluster_id
         ${whereClause}
       `;
 
@@ -307,12 +316,14 @@ export async function GET(request: NextRequest) {
         LEFT JOIN t1_dark_matter tdm ON tdm.t1_cluster_id = s.cluster_id
         LEFT JOIN t1_secondary_structure tss ON tss.t1_cluster_id = s.cluster_id
         LEFT JOIN t1_dali_summary tds ON tds.t1_cluster_id = s.cluster_id
+        LEFT JOIN t1_neff tn ON tn.t1_cluster_id = s.cluster_id
         ${whereClause}
       `;
 
       // Map sort column to qualified name for the joined query
       const qualifiedSort = sortColumn === 'dark_matter_class' ? 'tdm.dark_matter_class'
         : sortColumn === 'dali_best_zscore' ? 'tds.dali_best_zscore'
+        : sortColumn === 'avg_neff' ? 'tn.avg_neff'
         : `s.${sortColumn}`;
 
       const [countResult, dataResult] = await Promise.all([
@@ -338,6 +349,7 @@ export async function GET(request: NextRequest) {
           dali_best_hit: c.dali_best_hit || null,
           dali_best_library: c.dali_best_library || null,
           dali_searched: c.dali_searched ?? false,
+          avg_neff: c.avg_neff ? parseFloat(String(c.avg_neff)) : null,
         })),
         total: parseInt(countResult.rows[0]?.total || '0'),
         limit,

@@ -33,6 +33,7 @@ interface Tier1Row {
   dali_best_hit: string | null;
   dali_best_library: string | null;
   dali_searched: boolean;
+  avg_neff: number | null;
 }
 
 interface Tier2Row {
@@ -392,6 +393,7 @@ export default function NovelFoldBrowser() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cross-phylum</th>
                   <SortHeader column="dark_matter_class" label="DM Class" />
                   <SortHeader column="dali_best_zscore" label="DALI Best Z" />
+                  <SortHeader column="avg_neff" label="Avg Neff" />
                   <SortHeader column="avg_plddt" label="Avg pLDDT" />
                   <SortHeader column="phylum_count" label="Phyla" />
                   <SortHeader column="genome_count" label="Genomes" />
@@ -402,13 +404,13 @@ export default function NovelFoldBrowser() {
                 {loading ? (
                   Array.from({ length: 10 }).map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      {Array.from({ length: 9 }).map((_, j) => (
+                      {Array.from({ length: 10 }).map((_, j) => (
                         <td key={j} className="px-3 py-2"><div className="h-4 bg-gray-200 rounded w-12"></div></td>
                       ))}
                     </tr>
                   ))
                 ) : data?.items.length === 0 ? (
-                  <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
+                  <tr><td colSpan={10} className="px-3 py-8 text-center text-gray-500">No clusters found.</td></tr>
                 ) : (
                   (data?.items as Tier1Row[])?.map(c => (
                     <tr key={c.cluster_id} className="hover:bg-gray-50">
@@ -451,6 +453,15 @@ export default function NovelFoldBrowser() {
                           )
                         ) : (
                           <span className="text-gray-400 text-xs">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-sm text-right">
+                        {c.avg_neff != null ? (
+                          <span className={c.avg_neff < 3 ? 'text-red-600' : c.avg_neff < 6 ? 'text-yellow-600' : 'text-green-600'}>
+                            {c.avg_neff.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
                         )}
                       </td>
                       <td className="px-3 py-2 text-sm text-gray-900 text-right">{c.avg_plddt?.toFixed(1) || '-'}</td>

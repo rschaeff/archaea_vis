@@ -31,6 +31,7 @@ interface Tier1Cluster {
   genome_count: number;
   dark_matter_class: string | null;
   all_helix: boolean;
+  avg_neff: number | null;
 }
 
 interface Tier1Member {
@@ -38,6 +39,7 @@ interface Tier1Member {
   db_protein_id: string;
   mean_plddt: number | null;
   seq_length: number | null;
+  neff: number | null;
   phylum: string;
   major_group: string;
   organism: string;
@@ -281,9 +283,10 @@ export default function NovelFoldDetailPage() {
       </div>
 
       {/* Summary cards */}
-      <div className={`grid grid-cols-2 ${isTier1 ? 'md:grid-cols-4' : 'md:grid-cols-7'} gap-4 mb-6`}>
+      <div className={`grid grid-cols-2 ${isTier1 ? 'md:grid-cols-5' : 'md:grid-cols-7'} gap-4 mb-6`}>
         <Card label={isTier1 ? 'Proteins' : 'Domains'} value={String(cluster.cluster_size)} />
         <Card label="Avg pLDDT" value={cluster.avg_plddt?.toFixed(1) || '-'} />
+        <Card label="Avg Neff" value={isTier1 ? ((cluster as Tier1Cluster).avg_neff?.toFixed(1) || '-') : '-'} />
         <Card label="Phyla" value={String(cluster.phylum_count)} />
         <Card label="Genomes" value={String(cluster.genome_count)} />
         {!isTier1 && (
@@ -406,6 +409,7 @@ export default function NovelFoldDetailPage() {
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Protein</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">pLDDT</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Neff</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phylum</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Organism</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Genome</th>
@@ -420,6 +424,15 @@ export default function NovelFoldDetailPage() {
                       </Link>
                     </td>
                     <td className="px-3 py-2 text-sm text-right">{m.mean_plddt?.toFixed(1) || '-'}</td>
+                    <td className="px-3 py-2 text-sm text-right">
+                      {m.neff != null ? (
+                        <span className={m.neff < 3 ? 'text-red-600' : m.neff < 6 ? 'text-yellow-600' : 'text-green-600'}>
+                          {m.neff.toFixed(1)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-sm text-gray-600">{m.phylum}</td>
                     <td className="px-3 py-2 text-sm text-gray-600 max-w-[150px] truncate" title={m.organism}>
                       {m.organism}

@@ -59,6 +59,7 @@ async function handleTier1(clusterId: string) {
           c.db_protein_id,
           c.mean_plddt,
           c.seq_length,
+          c.neff,
           c.phylum,
           c.major_group,
           c.organism,
@@ -193,6 +194,14 @@ async function handleTier1(clusterId: string) {
   const dmClass = darkMatterResult.rows[0]?.dark_matter_class || null;
   const allHelix = ssResult.rows[0]?.all_helix ?? false;
 
+  // Compute avg Neff from members
+  const neffValues = membersResult.rows
+    .map(m => m.neff ? parseFloat(String(m.neff)) : null)
+    .filter((v): v is number => v != null);
+  const avgNeff = neffValues.length > 0
+    ? neffValues.reduce((a, b) => a + b, 0) / neffValues.length
+    : null;
+
   return NextResponse.json({
     tier: 1,
     cluster: {
@@ -202,10 +211,12 @@ async function handleTier1(clusterId: string) {
       max_plddt: cluster.max_plddt ? parseFloat(String(cluster.max_plddt)) : null,
       dark_matter_class: dmClass,
       all_helix: allHelix,
+      avg_neff: avgNeff,
     },
     members: membersResult.rows.map(m => ({
       ...m,
       mean_plddt: m.mean_plddt ? parseFloat(String(m.mean_plddt)) : null,
+      neff: m.neff ? parseFloat(String(m.neff)) : null,
     })),
     edges: edgesResult.rows.map(e => ({
       ...e,
