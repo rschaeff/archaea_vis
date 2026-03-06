@@ -214,11 +214,86 @@ function parseDomainRange(range: string): { chain: string; start: number; end: n
   });
 }
 
+/**
+ * Apply visibility and block-color styles to both models.
+ * Called on init and whenever show toggles change.
+ */
+function applyStyles(viewer: any, result: DaliResult, showQuery: boolean, showHit: boolean) {
+  const hitChain = result.hit_chain;
+
+  // --- Hit (model 0) ---
+  if (!showHit) {
+    viewer.setStyle({ model: 0 }, { cartoon: { hidden: true } });
+  } else {
+    // Hide everything first (other chains)
+    viewer.setStyle({ model: 0 }, { cartoon: { hidden: true } });
+
+    if (result.hit_domain_range) {
+      const segments = parseDomainRange(result.hit_domain_range);
+      for (const seg of segments) {
+        viewer.setStyle(
+          { model: 0, chain: seg.chain, resi: [`${seg.start}-${seg.end}`] },
+          { cartoon: { color: '#d1d5db', opacity: 0.4 } }
+        );
+      }
+    } else {
+      viewer.setStyle(
+        { model: 0, chain: hitChain },
+        { cartoon: { color: '#d1d5db', opacity: 0.4 } }
+      );
+    }
+
+    // Color aligned blocks
+    if (result.blocks) {
+      for (let i = 0; i < result.blocks.length; i++) {
+        const block = result.blocks[i];
+        const color = BLOCK_COLORS[i % BLOCK_COLORS.length];
+        viewer.setStyle(
+          { model: 0, chain: hitChain, resi: [`${block.l2}-${block.r2}`] },
+          { cartoon: { color, opacity: 1.0 } }
+        );
+      }
+    }
+  }
+
+  // --- Query (model 1) ---
+  if (!showQuery) {
+    viewer.setStyle({ model: 1 }, { cartoon: { hidden: true } });
+  } else {
+    viewer.setStyle({ model: 1 }, {
+      cartoon: { color: '#d1d5db', opacity: 0.4 },
+    });
+
+    if (result.blocks) {
+      for (let i = 0; i < result.blocks.length; i++) {
+        const block = result.blocks[i];
+        const color = BLOCK_COLORS[i % BLOCK_COLORS.length];
+        viewer.setStyle(
+          { model: 1, resi: [`${block.l1}-${block.r1}`] },
+          { cartoon: { color, opacity: 1.0 } }
+        );
+      }
+    }
+  }
+}
+
 function SuperpositionViewer({ result }: { result: DaliResult }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<any>(null);
   const [viewerLoading, setViewerLoading] = useState(true);
   const [viewerError, setViewerError] = useState<string | null>(null);
+  const [showQuery, setShowQuery] = useState(true);
+  const [showHit, setShowHit] = useState(true);
+  const readyRef = useRef(false);
+
+  // Re-apply styles when visibility toggles change
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer || !readyRef.current) return;
+
+    applyStyles(viewer, result, showQuery, showHit);
+    viewer.render();
+  }, [showQuery, showHit, result]);
 
   const initViewer = useCallback(async () => {
     if (!containerRef.current) return;
@@ -256,42 +331,6 @@ function SuperpositionViewer({ result }: { result: DaliResult }) {
       const hitFormat = hitData.includes('data_') ? 'cif' : 'pdb';
       viewer.addModel(hitData, hitFormat);
 
-      // For ECOD domain hits, restrict to the domain chain only
-      const hitChain = result.hit_chain;
-      const hitSelector: any = { model: 0, chain: hitChain };
-
-      // Hide all other chains
-      viewer.setStyle({ model: 0 }, { cartoon: { hidden: true } });
-
-      // If we have domain range info, only show domain residues
-      if (result.hit_domain_range) {
-        const segments = parseDomainRange(result.hit_domain_range);
-        // Show domain residues as faded gray (unaligned base)
-        for (const seg of segments) {
-          viewer.setStyle(
-            { model: 0, chain: seg.chain, resi: [`${seg.start}-${seg.end}`] },
-            { cartoon: { color: '#d1d5db', opacity: 0.4 } }
-          );
-        }
-      } else {
-        // PDB chain hit: show entire chain as faded gray
-        viewer.setStyle(hitSelector, {
-          cartoon: { color: '#d1d5db', opacity: 0.4 },
-        });
-      }
-
-      // Color aligned blocks on the hit
-      if (result.blocks) {
-        for (let i = 0; i < result.blocks.length; i++) {
-          const block = result.blocks[i];
-          const color = BLOCK_COLORS[i % BLOCK_COLORS.length];
-          viewer.setStyle(
-            { model: 0, chain: hitChain, resi: [`${block.l2}-${block.r2}`] },
-            { cartoon: { color, opacity: 1.0 } }
-          );
-        }
-      }
-
       // --- Model 1: Query structure ---
       const queryFormat = queryData.includes('data_') ? 'cif' : 'pdb';
       viewer.addModel(queryData, queryFormat);
@@ -313,22 +352,9 @@ function SuperpositionViewer({ result }: { result: DaliResult }) {
         }
       }
 
-      // Query: unaligned as faded gray
-      viewer.setStyle({ model: 1 }, {
-        cartoon: { color: '#d1d5db', opacity: 0.4 },
-      });
-
-      // Color aligned blocks on the query with matching colors
-      if (result.blocks) {
-        for (let i = 0; i < result.blocks.length; i++) {
-          const block = result.blocks[i];
-          const color = BLOCK_COLORS[i % BLOCK_COLORS.length];
-          viewer.setStyle(
-            { model: 1, resi: [`${block.l1}-${block.r1}`] },
-            { cartoon: { color, opacity: 1.0 } }
-          );
-        }
-      }
+      // Apply initial styles
+      readyRef.current = true;
+      applyStyles(viewer, result, true, true);
 
       viewer.zoomTo();
       viewer.render();
@@ -368,11 +394,37 @@ function SuperpositionViewer({ result }: { result: DaliResult }) {
           )}
           <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
         </div>
-        {/* Legend */}
-        <div className="px-3 py-2 border-t border-gray-200 bg-gray-50">
+        {/* Toolbar + Legend */}
+        <div className="px-3 py-2 border-t border-gray-200 bg-gray-50 space-y-1.5">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-medium text-gray-600 mr-1">Show:</span>
+            <button
+              onClick={() => setShowQuery(v => !v)}
+              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                showQuery
+                  ? 'bg-blue-100 text-blue-800 ring-1 ring-blue-300'
+                  : 'bg-gray-200 text-gray-400 line-through'
+              }`}
+            >
+              Query
+            </button>
+            <button
+              onClick={() => setShowHit(v => !v)}
+              className={`px-2 py-0.5 rounded font-medium transition-colors ${
+                showHit
+                  ? 'bg-green-100 text-green-800 ring-1 ring-green-300'
+                  : 'bg-gray-200 text-gray-400 line-through'
+              }`}
+            >
+              Hit ({result.hit_cd2})
+            </button>
+            <span className="ml-auto text-gray-400">
+              Query: transformed &middot; Hit: reference frame
+            </span>
+          </div>
           <div className="flex items-center gap-4 text-xs text-gray-500 flex-wrap">
-            <span className="font-medium text-gray-600">Aligned blocks:</span>
-            {(result.blocks || []).map((b, i) => (
+            <span className="font-medium text-gray-600">Blocks:</span>
+            {(result.blocks || []).map((_b, i) => (
               <span key={i} className="flex items-center gap-1">
                 <span className="w-3 h-3 rounded" style={{ backgroundColor: BLOCK_COLORS[i % BLOCK_COLORS.length] }}></span>
                 B{i + 1}
@@ -381,9 +433,6 @@ function SuperpositionViewer({ result }: { result: DaliResult }) {
             <span className="flex items-center gap-1 ml-2">
               <span className="w-3 h-3 rounded bg-gray-300"></span>
               Unaligned
-            </span>
-            <span className="ml-auto text-gray-400">
-              Query: transformed &middot; Hit: reference frame
             </span>
           </div>
         </div>
