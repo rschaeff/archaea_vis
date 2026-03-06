@@ -9,8 +9,14 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import ProgressBar from '@/components/ProgressBar';
 import { lddtClassColor, lddtClassLabel, darkMatterClassColor, darkMatterClassLabel, daliZscoreColor, daliZscoreLabel } from '@/lib/utils';
+
+const DaliResultDetail = dynamic(
+  () => import('@/components/DaliResultDetail'),
+  { ssr: false, loading: () => <div className="p-4 text-sm text-gray-400">Loading viewer...</div> }
+);
 
 // Tier 1 types
 interface Tier1Cluster {
@@ -128,12 +134,14 @@ interface XgroupSuggestion {
 }
 
 interface DaliHit {
+  result_id: string | null;
   hit_cd2: string;
   zscore: number;
   rmsd: number | null;
   nblock: number | null;
   round: number | null;
   ecod_h_group: string | null;
+  ecod_uid: number | null;
   ecod_x_group_name: string | null;
 }
 
@@ -164,6 +172,7 @@ export default function NovelFoldDetailPage() {
   const [data, setData] = useState<DetailData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedDaliResult, setExpandedDaliResult] = useState<string | null>(null);
 
   useEffect(() => {
     if (!clusterId) return;
@@ -599,30 +608,46 @@ export default function NovelFoldDetailPage() {
                           : 'text-gray-700';
                         const isEcod = h.hit_cd2.startsWith('e');
                         const pdbCode = isEcod ? null : h.hit_cd2.substring(0, 4);
+                        const isExpanded = expandedDaliResult === h.result_id;
                         return (
-                          <tr key={i} className="hover:bg-gray-50">
+                          <tr key={i} className={`hover:bg-gray-50 ${h.result_id ? 'cursor-pointer' : ''} ${isExpanded ? 'bg-indigo-50' : ''}`}
+                              onClick={() => {
+                                if (h.result_id) {
+                                  setExpandedDaliResult(isExpanded ? null : h.result_id);
+                                }
+                              }}
+                          >
                             <td className="px-3 py-2 text-sm font-mono">
-                              {isEcod ? (
-                                <a
-                                  href={`http://prodata.swmed.edu/ecod/af/${h.hit_cd2}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:text-blue-800"
-                                  title="View in ECOD"
-                                >
-                                  {h.hit_cd2} <span className="text-[10px]">&#8599;</span>
-                                </a>
-                              ) : (
-                                <a
-                                  href={`https://www.rcsb.org/structure/${pdbCode}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:text-blue-800"
-                                  title="View in RCSB PDB"
-                                >
-                                  {h.hit_cd2} <span className="text-[10px]">&#8599;</span>
-                                </a>
-                              )}
+                              <span className="flex items-center gap-1.5">
+                                {h.result_id && (
+                                  <span className={`text-[10px] transition-transform ${isExpanded ? 'rotate-90' : ''}`}>&#9654;</span>
+                                )}
+                                {isEcod ? (
+                                  <a
+                                    href={h.ecod_uid
+                                      ? `http://prodata.swmed.edu/ecod/complete/domain/${h.ecod_uid}`
+                                      : `http://prodata.swmed.edu/ecod/complete/search?kw=${h.hit_cd2}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800"
+                                    title="View in ECOD"
+                                    onClick={e => e.stopPropagation()}
+                                  >
+                                    {h.hit_cd2} <span className="text-[10px]">&#8599;</span>
+                                  </a>
+                                ) : (
+                                  <a
+                                    href={`https://www.rcsb.org/structure/${pdbCode}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-600 hover:text-blue-800"
+                                    title="View in RCSB PDB"
+                                    onClick={e => e.stopPropagation()}
+                                  >
+                                    {h.hit_cd2} <span className="text-[10px]">&#8599;</span>
+                                  </a>
+                                )}
+                              </span>
                             </td>
                             <td className={`px-3 py-2 text-sm text-right ${zColor}`}>{h.zscore.toFixed(1)}</td>
                             <td className="px-3 py-2 text-sm text-right text-gray-600">{h.rmsd != null && h.rmsd !== 9.9 ? h.rmsd.toFixed(1) : '-'}</td>
@@ -649,6 +674,15 @@ export default function NovelFoldDetailPage() {
                       Showing top 20 of {search.hits.length} hits
                     </div>
                   )}
+                </div>
+              )}
+              {/* Expanded DALI result detail panel */}
+              {expandedDaliResult && search.hits.some(h => h.result_id === expandedDaliResult) && (
+                <div className="p-4 border-t border-indigo-200">
+                  <DaliResultDetail
+                    resultId={expandedDaliResult}
+                    onClose={() => setExpandedDaliResult(null)}
+                  />
                 </div>
               )}
             </div>
